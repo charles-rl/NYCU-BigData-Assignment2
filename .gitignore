@@ -1,0 +1,8 @@
+# Downloaded GH Archive hourly files (see scripts/get_raw_data.py)
+raw_data/
+
+# Tables built by scripts/preprocess.py
+processed_tables/
+
+# pi harness state / session task output
+.pi/
