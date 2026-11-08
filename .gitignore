@@ -1,3 +1,7 @@
+# Python bytecode caches
+__pycache__/
+*.py[cod]
+
 # Downloaded GH Archive hourly files (see scripts/get_raw_data.py)
 raw_data/
 
@@ -6,3 +10,9 @@ processed_tables/
 
 # pi harness state / session task output
 .pi/
+
+# Charts written by scripts/explore_data.py
+explore_output/
+
+# Temporal train/validation split written by src/data/test_temporal_split.py
+splits/
