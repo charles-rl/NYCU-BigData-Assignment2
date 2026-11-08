@@ -90,7 +90,7 @@ def create_node(table_name, data):
     return f'''<
     <table border="1" cellborder="0" cellspacing="0" cellpadding="6" color="{BORDER_COLOR}" style="rounded">
         <tr><td bgcolor="{HEADER_COLOR}" align="center" cellpadding="8"><font color="white"><b>{table_name}</b></font></td></tr>
-        <tr><td bgcolor="{PK_COLOR}" align="left" port="{data["pk"]}" color="{BORDER_COLOR}"><b>🔑 {data["pk"]}</b> (PK)</td></tr>
+        <tr><td bgcolor="{PK_COLOR}" align="left" port="{data["pk"]}" color="{BORDER_COLOR}"><b>{data["pk"]}</b> (PK)</td></tr>
         {fk_rows}
     </table>>'''
 
