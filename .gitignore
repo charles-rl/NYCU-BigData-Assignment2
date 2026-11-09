@@ -14,5 +14,8 @@ processed_tables/
 # Charts written by scripts/explore_data.py
 explore_output/
 
-# Temporal train/validation split written by src/data/test_temporal_split.py
+# Temporal train/validation split written by src/data/make_split.py
 splits/
+
+# Decay curves / weights written by src/data/activity_decay_analysis.py
+temporal_output/

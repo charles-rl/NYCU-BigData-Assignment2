@@ -16,8 +16,10 @@ python scripts/preprocess.py --raw raw_data --out processed_tables
 ```
 
 ```
-winget install Graphviz.Graphviz
+python -m src.data.make_split
 ```
 
-
+```
+winget install Graphviz.Graphviz
+```
 
