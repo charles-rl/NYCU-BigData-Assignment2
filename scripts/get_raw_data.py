@@ -9,9 +9,13 @@ OUTPUT_DIR = "raw_data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Define your exact start and end dates
-# Sept 1, 2026 to Nov 8, 2026
-START_DATE = datetime(2026, 9, 1).date()
-END_DATE   = datetime(2026, 11, 8).date()
+# Dec 1, 2025 to October 31, 2026. 
+# activity types appear at plausible density (~18k PullRequestEvents/hour, vs
+# ~1.3k in Sep 2026 and ~110 in Aug 2026), so it doubles as the reference month
+# for scripts/verify_raw_data.py.
+# November 1 until now is excluded because it seems there was data corruption during that time
+START_DATE = datetime(2025, 12, 1).date()
+END_DATE   = datetime(2026, 10, 31).date()
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"

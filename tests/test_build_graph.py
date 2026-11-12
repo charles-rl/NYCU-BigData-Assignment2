@@ -359,7 +359,11 @@ def test_nat_timestamps_do_not_produce_nan(tables: dict[str, pd.DataFrame]) -> N
     modified["Repositories"].loc[0, "first_seen_at"] = pd.NaT
     modified["Users"].loc[3, "first_seen_at"] = pd.NaT
     modified["Issues"].loc[2, "num_labels"] = np.nan
-    modified["PullRequests"].loc[1, "draft"] = None
+    # pandas 3 refuses to store None in a bool column, so widen first. The test
+    # only cares that a missing `draft` degrades to 0.0, not about its dtype.
+    pr = modified["PullRequests"]
+    pr["draft"] = pr["draft"].astype(object)
+    pr.loc[1, "draft"] = None
 
     graph = build_hetero_graph(modified, CUTOFF)
 

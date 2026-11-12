@@ -19,3 +19,9 @@ splits/
 
 # Decay curves / weights written by src/data/activity_decay_analysis.py
 temporal_output/
+
+# Weights & Biases local run directory
+wandb/
+
+# training artifacts
+checkpoints/

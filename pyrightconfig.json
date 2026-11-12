@@ -1,0 +1,8 @@
+{
+  "//": "Point the type checker at the project conda env, not conda base. base deliberately has no wandb/cma: they were installed there by mistake and removed.",
+  "venvPath": "/home/mses101137/miniconda3/envs",
+  "venv": "bda_asg2",
+  "pythonVersion": "3.11",
+  "include": ["src", "scripts", "tests"],
+  "exclude": ["**/node_modules", "**/__pycache__", ".git", "raw_data", "processed_tables", "splits", "temporal_output", "explore_output"]
+}

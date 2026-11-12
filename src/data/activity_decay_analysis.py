@@ -282,14 +282,44 @@ def fit_decay(
     return out
 
 
+PERIOD_POWER_GATE = 0.30
+# A least-squares sinusoid scan replaces the periodogram as the cycle detector.
+# Rationale: on a 25-point curve the FFT spreads a single sine over several
+# bins, so a peak's share of in-band power fails to separate signal from null --
+# a real 50%-amplitude weekly cycle scores 0.25 while a noiseless pure
+# exponential scores 0.26 through detrend leakage. Scanning candidate periods
+# and scoring the variance a sinusoid explains does separate them.
+PERIOD_R2_GATE = 0.40
+PERIOD_AMP_GATE = 0.10
+PERIOD_MIN_SUPPORT = 500
+
+
 def periodicity(
-    dt: np.ndarray, p: np.ndarray, n: np.ndarray, min_support: int, max_delta: int
+    dt: np.ndarray,
+    p: np.ndarray,
+    n: np.ndarray,
+    min_support: int,
+    max_delta: int,
+    model: dict[str, float] | None = None,
 ) -> dict[str, float]:
     """Weekly-bump ratios plus the dominant period of the detrended curve.
 
     bump(k) = p(k) / mean(p(k-3..k-2, k+2..k+3)) - 1 is the excess over the
-    local trend at a 7-day multiple.  The periodogram peak is a coarse
-    cross-check on a 20-point curve, so both are reported.
+    local trend at a 7-day multiple.
+
+    The residual is taken against the *fitted decay* when `model` is supplied,
+    not against a quadratic. A quadratic cannot absorb a discrete exponential:
+    detrending `floor + amp * exp(-dt/tau)` with one leaves a sawtooth whose
+    leakage lands at the band edge and reports an 11.3-day "cycle". A pure
+    synthetic exponential with no noise scores 11.27 d on that detrend, which is
+    the tell -- the number is a property of the detrend, not of the data.
+    Subtracting the model makes an exponential score zero by construction.
+
+    The cycle itself is found by scanning candidate periods and scoring the
+    variance a sinusoid explains at each, rather than by a periodogram. A
+    25-point FFT splits one sine across several bins, so peak *share* does not
+    separate signal from null (measured: a true 50%-amplitude weekly cycle
+    scores 0.25, a noiseless pure exponential 0.26).
     """
     out = {
         "bump_7": float("nan"),
@@ -297,7 +327,8 @@ def periodicity(
         "bump_21": float("nan"),
         "plateau_ratio": float("nan"),
         "dominant_period_days": float("nan"),
-        "peak_power_share": float("nan"),
+        "cycle_r2": float("nan"),
+        "cycle_amplitude_share": float("nan"),
     }
     # A bump read off a 100-row bin is noise, so bump/plateau need real support.
     bump_support = max(min_support, 150)
@@ -326,25 +357,49 @@ def periodicity(
     vals = vals.interpolate(limit_direction="both")
     if vals.isna().any() or len(grid) < 8:
         return out
-    logv = np.log(np.clip(vals.to_numpy(), 1e-6, None))
-    coef = np.polyfit(grid, logv, 2)  # quadratic: the tail curves in log space
-    resid = logv - np.polyval(coef, grid)
-    resid = resid - resid.mean()
-
-    nfft = 4 * len(grid)  # zero-pad: finer period resolution on a short curve
-    power = np.abs(np.fft.rfft(resid, n=nfft))
-    freqs = np.fft.rfftfreq(nfft, d=1.0)
-    with np.errstate(divide="ignore"):
-        periods = np.where(freqs > 0, 1.0 / freqs, np.inf)
-    band = (periods >= 2.0) & (periods <= 12.0)
-    if band.any():
-        k = int(np.argmax(power[band]))
-        total = float(np.sum(power[band] ** 2))
-        share = float(power[band][k] ** 2 / total) if total > 0 else float("nan")
-        out["peak_power_share"] = share
-        # Below 20% of the in-band power the "peak" is just leftover curvature.
-        if np.isfinite(share) and share >= 0.20:
-            out["dominant_period_days"] = float(periods[band][k])
+    fit_vals = vals.to_numpy()
+    base: np.ndarray | None = None
+    if model is not None:
+        tau = float(model.get("tau_days", float("nan")))
+        floor = float(model.get("floor", float("nan")))
+        amp = float(model.get("amp", float("nan")))
+        if np.isfinite(tau) and np.isfinite(floor) and np.isfinite(amp) and tau > 0:
+            base = floor + amp * np.exp(-grid / tau)
+    if base is None:
+        logv = np.log(np.clip(fit_vals, 1e-6, None))
+        base = np.exp(np.polyval(np.polyfit(grid, logv, 2), grid))
+    resid = fit_vals - base
+    tss = float(np.sum((resid - resid.mean()) ** 2))
+    # Below ~500 rows per bin the scan's false-positive rate climbs to 0.7%; a
+    # cycle claim off support that thin is not worth making.
+    if tss <= 0 or float(np.median(n[ok])) < PERIOD_MIN_SUPPORT:
+        return out
+    best_r2, best_period, best_amp = -1.0, float("nan"), float("nan")
+    level = float(np.mean(np.clip(base, 1e-6, None)))
+    for period in np.arange(2.0, 12.001, 0.05):
+        design = np.column_stack(
+            [
+                np.ones_like(grid, dtype=float),
+                np.sin(2 * np.pi * grid / period),
+                np.cos(2 * np.pi * grid / period),
+            ]
+        )
+        coef, *_ = np.linalg.lstsq(design, resid, rcond=None)
+        r2 = 1.0 - float(np.sum((resid - design @ coef) ** 2)) / tss
+        if r2 > best_r2:
+            best_r2 = r2
+            best_period = float(period)
+            best_amp = float(np.hypot(coef[1], coef[2]) / level)
+    out["cycle_r2"] = best_r2
+    out["cycle_amplitude_share"] = best_amp
+    # Calibrated against the null (Poisson-sampled `floor + amp*exp(-dt/tau)`
+    # curves, tau 1.5-12 d, floor 0.01-0.30, amp 0.05-1.0, n 300-5000): at
+    # n >= 1500 the scan stays under r2 0.47 and amplitude 0.26, while a 30%
+    # weekly sine on a tau=4 d decay scores r2 0.44-0.48 and is detected 20/20
+    # times at n = 2000. Both gates are required -- r2 alone lets a low-n
+    # wiggle through, amplitude alone lets a strong trend residual through.
+    if best_r2 >= PERIOD_R2_GATE and best_amp >= PERIOD_AMP_GATE:
+        out["dominant_period_days"] = best_period
     return out
 
 
@@ -396,12 +451,21 @@ class Panel:
         dt_same: np.ndarray,
         y: np.ndarray,
         anchor: pd.Timestamp,
+        usable: np.ndarray | None = None,
     ) -> None:
-        """Fold one anchor's user panel into the counts."""
+        """Fold one anchor's user panel into the counts.
+
+        `usable` is a length-`n_act` boolean mask: an activity whose stream was
+        damaged around this anchor contributes no rows, so it cannot drag its own
+        curve with a stretched or collapsed denominator.
+        """
+        keep = np.ones(self.n_act, dtype=bool) if usable is None else np.asarray(usable)
         for axis, dt_matrix in enumerate(
             (dt_any[:, None].repeat(self.n_act, 1), dt_same)
         ):
             for j in range(self.n_act):
+                if not keep[j]:
+                    continue
                 idx = bin_index(dt_matrix[:, j], self.max_delta)
                 self.n[axis, j] += np.bincount(idx, minlength=self.nbins)
                 self.pos[axis, j] += np.bincount(
@@ -411,7 +475,10 @@ class Panel:
             {
                 "anchor": anchor.isoformat(),
                 "users": int(y.shape[0]),
-                **{act: int(y[:, j].sum()) for j, act in enumerate(LABEL_COLS)},
+                **{
+                    act: (int(y[:, j].sum()) if keep[j] else np.nan)
+                    for j, act in enumerate(LABEL_COLS)
+                },
             }
         )
 
@@ -491,6 +558,7 @@ def summarise(
                 dt_rows["n"].to_numpy(),
                 min_support,
                 panel.max_delta,
+                fit,
             )
         )
 
@@ -508,10 +576,19 @@ def summarise(
                 same_dt["n"].to_numpy(),
                 min_support,
                 panel.max_delta,
+                fit_same,
             )
         )
 
-        pos_by_window = windows[act].to_numpy() if act in windows else np.array([0])
+        pos_by_window = (
+            windows[act].astype(float).to_numpy() if act in windows else np.array([0.0])
+        )
+        # NaN = the activity's stream was damaged at that anchor, so it never
+        # entered the curve; counting it as a zero-positive window would read as
+        # "nobody did this" instead of "not observed".
+        pos_by_window = pos_by_window[np.isfinite(pos_by_window)]
+        if pos_by_window.size == 0:
+            pos_by_window = np.array([0.0])
         rows.append(
             {
                 "activity": act,
@@ -608,6 +685,330 @@ def event_stats(tables: dict[str, pd.DataFrame], user_ids: np.ndarray) -> pd.Dat
 # ------------------------------------------------------------------ plots --
 
 
+def load_coverage(path: Path) -> pd.DataFrame:
+    """Hour-level audit frame written by `scripts/verify_raw_data.py`."""
+    frame = pd.read_csv(path, dtype={"day": str})
+    frame = cast(pd.DataFrame, frame[frame["events"].notna()].copy())
+    frame["day"] = frame["day"].astype(str)
+    frame["events"] = frame["events"].astype(float)
+    frame["PushEvent"] = frame["PushEvent"].astype(float)
+    return frame
+
+
+def load_activity_coverage(path: Path) -> pd.DataFrame:
+    """Day x activity audit frame written by `scripts/verify_raw_data.py`.
+
+    The hour frame cannot express a day-level density band: it is aggregated to
+    `hours_ok == hours`, which is unreachable in a sparse regime (a typical day
+    has 19/24 intact, so P(24/24) is under 1%). The day verdict -- "this day's
+    total is within the local band" -- only exists in this frame, so it has to be
+    read separately and merged in.
+    """
+    frame = pd.read_csv(path, dtype={"day": str})
+    frame = cast(pd.DataFrame, frame[frame["activity"].notna()])
+    out = pd.DataFrame(index=pd.DatetimeIndex(pd.to_datetime(frame["day"].unique())))
+    for activity in LABEL_COLS:
+        block = cast(pd.DataFrame, frame[frame["activity"] == activity])
+        if block.empty:
+            continue
+        index = pd.DatetimeIndex(pd.to_datetime(block["day"]))
+        out[f"clean_{activity}"] = pd.Series(
+            block["clean"].astype(bool).to_numpy(), index=index
+        ).reindex(out.index, fill_value=False)
+        if "usable" in block.columns:
+            out[f"usable_{activity}"] = pd.Series(
+                block["usable"].astype(bool).to_numpy(), index=index
+            ).reindex(out.index, fill_value=False)
+    out.index.name = "day"
+    return out.sort_index()
+
+
+def activity_columns(coverage: pd.DataFrame) -> list[str]:
+    """Activities carrying their own `ok_<activity>` hour flags, if any."""
+    return [act for act in LABEL_COLS if f"ok_{act}" in coverage.columns]
+
+
+def clean_columns(per_day: pd.DataFrame) -> list[str]:
+    """Activities with their own day-level flag (`usable_<act>` or `clean_<act>`).
+
+    Separate from `activity_columns` because the two frames are at different
+    granularities: the hour frame carries `ok_<act>`, the per-day frame carries
+    the day verdicts. Reading the wrong one silently degrades to the
+    all-activity verdict, which is the bug that made every cell look unusable.
+
+    `usable` is preferred over `clean` when both exist. `clean` demands a
+    flawless day, which a sparse regime cannot supply -- with 19/24 hours
+    typically intact, P(24/24) is under 1% and a whole month reads as unusable.
+    `usable` is the day-level band the curve actually needs.
+    """
+    return [
+        act
+        for act in LABEL_COLS
+        if f"usable_{act}" in per_day.columns or f"clean_{act}" in per_day.columns
+    ]
+
+
+def day_flag_column(act: str, per_day: pd.DataFrame) -> str:
+    """The column holding `act`'s day verdict, preferring the looser band."""
+    return f"usable_{act}" if f"usable_{act}" in per_day.columns else f"clean_{act}"
+
+
+def day_quality(
+    coverage: pd.DataFrame,
+    min_volume_share: float,
+    min_push_share: float,
+    activity_day: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Per-day completeness: how many hours look sane, and whether all do.
+
+    GH Archive drops whole event types from individual hours (most often
+    `PushEvent`) while the rest of the hour stays full -- or, on the worst days,
+    inflates to several times its normal volume. Both modes pass a "file exists
+    and is > 1 KB" check, so days are judged from the event mix instead, and a
+    day is only *clean* when **every** hour of it clears both gates.
+
+    A day that is missing pushes is poison for the curve that conditions on
+    recency: users whose last event fell in the gap look stale, so their Δt is
+    inflated and the decay looks faster than it is.
+    """
+    frame = coverage.copy()
+    median = float(frame["events"].median())
+    frame["push_share"] = frame["PushEvent"] / frame["events"].where(
+        frame["events"] > 0, np.nan
+    )
+    frame["ok"] = (frame["events"] >= min_volume_share * median) & (
+        frame["push_share"].fillna(0) >= min_push_share
+    )
+    # The audit now flags each activity separately, because the damage is
+    # activity-specific: an hour can keep every push and lose every review. When
+    # those flags are present they define cleanliness, and the push-share proxy
+    # above is only the legacy fallback.
+    per_activity = activity_columns(frame)
+    for act in per_activity:
+        frame[f"ok_{act}"] = frame[f"ok_{act}"].astype(bool)
+    grouped = frame.groupby("day", sort=True)
+    per_day = pd.DataFrame(
+        {
+            "hours": grouped["ok"].size(),
+            "hours_ok": grouped["ok"].sum(),
+            "events": grouped["events"].sum(),
+            "pushes": grouped["PushEvent"].sum(),
+        }
+    )
+    events = per_day["events"].to_numpy(dtype=float)
+    per_day = per_day.assign(
+        ok_share=per_day["hours_ok"].astype(float) / per_day["hours"].astype(float),
+        push_share=np.divide(
+            per_day["pushes"].to_numpy(dtype=float),
+            events,
+            out=np.full(events.shape, np.nan),
+            where=events > 0,
+        ),
+        clean=per_day["hours_ok"] == per_day["hours"],
+    )
+    if per_activity:
+        for act in per_activity:
+            block = frame.groupby("day", sort=True)[f"ok_{act}"]
+            per_day[f"hours_ok_{act}"] = block.sum()
+            per_day[f"clean_{act}"] = per_day[f"hours_ok_{act}"] == per_day["hours"]
+        if activity_day is not None and not activity_day.empty:
+            # Prefer the day-level density band from coverage_activity.csv: the
+            # hour flags can only say "every hour intact", which no sparse day
+            # satisfies, so falling back to them rejects whole months.
+            index = pd.DatetimeIndex(pd.to_datetime(per_day.index))
+            for act in per_activity:
+                for prefix in ("clean", "usable"):
+                    column = f"{prefix}_{act}"
+                    if column in activity_day.columns:
+                        per_day[column] = pd.Series(
+                            activity_day[column]
+                            .reindex(index)
+                            .fillna(False)
+                            .to_numpy(),
+                            index=per_day.index,
+                        ).astype(bool)
+        for act in per_activity:
+            source = f"usable_{act}"
+            if source in per_day.columns:
+                per_day[f"usable_{act}"] = per_day[source].astype(bool)
+            else:
+                per_day[f"usable_{act}"] = per_day[f"clean_{act}"]
+        per_day["clean"] = per_day[[f"clean_{act}" for act in per_activity]].all(axis=1)
+        per_day["usable"] = per_day[[f"usable_{act}" for act in per_activity]].all(
+            axis=1
+        )
+        # An hour is only *really* sane when all six streams survived it. The
+        # legacy `ok` column tests volume plus push share, which answers a
+        # narrower question and, against a corpus-wide median, rejects every
+        # sparse hour of the recent months -- reporting that number as "sane
+        # hours" understates coverage by a third.
+        sane = frame.assign(
+            _sane=frame[[f"ok_{act}" for act in per_activity]].all(axis=1)
+        )
+        per_day["hours_ok_all"] = sane.groupby("day", sort=True)["_sane"].sum()
+    return cast(pd.DataFrame, per_day)
+
+
+def select_anchors(
+    anchors: list[pd.Timestamp],
+    per_day: pd.DataFrame,
+    mode: str,
+    horizon_days: int,
+    max_delta: int,
+) -> list[pd.Timestamp]:
+    """Keep the anchors whose label window (and lookback) has full coverage."""
+    if mode == "off":
+        return anchors
+    usable = anchor_usability(anchors, per_day, mode, horizon_days, max_delta)
+    return [anchor for anchor in anchors if bool(usable.loc[anchor].all())]
+
+
+def anchor_usability(
+    anchors: list[pd.Timestamp],
+    per_day: pd.DataFrame,
+    mode: str,
+    horizon_days: int,
+    max_delta: int,
+) -> pd.DataFrame:
+    """Per-(anchor, activity) coverage: may this cell enter the curve?
+
+    The audit finds that loss is activity-specific -- an hour can keep every
+    push and lose every review, and the months differ (`push` is usable on 45 of
+    89 days, `pr_review_comment` on 20). Dropping a whole *day* therefore throws
+    away good cells: a day whose `push` stream is intact but whose review stream
+    collapsed is a valid push anchor and an invalid review anchor.
+
+    Judging the cell instead of the day is what turns the strict filter from
+    "keeps 0 anchors" into a usable panel, and it is also the honest encoding:
+    a probability is only estimated from user-anchors whose own stream survived.
+    """
+    acts = clean_columns(per_day)
+    day_index = pd.DatetimeIndex(pd.to_datetime(per_day.index))
+    anchor_index = pd.DatetimeIndex(anchors)
+    cols = pd.Index(LABEL_COLS)
+    if mode == "off":
+        return pd.DataFrame(True, index=anchor_index, columns=cols)
+    if not acts:
+        # Legacy audit without per-activity flags: every activity shares the
+        # day-level verdict.
+        clean = pd.Series(
+            per_day["clean"].astype(bool).to_numpy(), index=day_index, dtype=bool
+        )
+        rows_legacy: list[dict[str, bool]] = []
+        for anchor in anchors:
+            window = pd.date_range(anchor, anchor + pd.Timedelta(days=horizon_days - 1))
+            days = list(window)
+            if mode == "strict":
+                days += list(
+                    pd.date_range(
+                        anchor - pd.Timedelta(days=max_delta),
+                        anchor - pd.Timedelta(days=1),
+                    )
+                )
+            seen = clean.reindex(pd.DatetimeIndex(days)).astype("boolean")
+            ok = bool(seen.fillna(False).to_numpy(dtype=bool).all())
+            rows_legacy.append(dict.fromkeys(LABEL_COLS, ok))
+        legacy = pd.DataFrame(rows_legacy, index=anchor_index)
+        return cast(pd.DataFrame, legacy[cols])
+    columns = [day_flag_column(act, per_day) for act in acts]
+    clean_all = per_day[columns].astype(bool)
+    # `per_day` is keyed by "YYYY-MM-DD" strings, so reindexing it with a
+    # DatetimeIndex would return all-NaN and mark everything unusable.
+    clean_all.index = day_index
+    rows: list[dict[str, bool]] = []
+    for anchor in anchors:
+        window = pd.date_range(anchor, anchor + pd.Timedelta(days=horizon_days - 1))
+        days = list(window)
+        if mode == "strict":
+            days += list(
+                pd.date_range(
+                    anchor - pd.Timedelta(days=max_delta),
+                    anchor - pd.Timedelta(days=1),
+                )
+            )
+        known = clean_all.reindex(pd.DatetimeIndex(days))
+        # A day the audit never saw is unknown, not clean.
+        row: dict[str, bool] = {}
+        for act in acts:
+            series = cast(pd.Series, known.loc[:, day_flag_column(act, per_day)])
+            row[act] = bool(series.astype("boolean").fillna(False).to_numpy().all())
+        rows.append(row)
+    frame = pd.DataFrame(rows, index=anchor_index)
+    for act in LABEL_COLS:
+        if act not in frame.columns:
+            frame[act] = False
+    return cast(pd.DataFrame, frame[cols])
+
+
+def _runs(flags: np.ndarray) -> list[tuple[int, int]]:
+    """Half-open [start, stop) index runs where `flags` is true."""
+    runs: list[tuple[int, int]] = []
+    start: int | None = None
+    for i, flag in enumerate(flags):
+        if flag and start is None:
+            start = i
+        elif not flag and start is not None:
+            runs.append((start, i))
+            start = None
+    if start is not None:
+        runs.append((start, len(flags)))
+    return runs
+
+
+def build_panel(
+    tables: dict[str, pd.DataFrame],
+    users: pd.DataFrame,
+    streams: dict[str, pd.DataFrame],
+    anchors: list[pd.Timestamp],
+    horizon_days: int,
+    max_delta: int,
+    verbose: bool = True,
+    usability: pd.DataFrame | None = None,
+) -> Panel:
+    """Fold every anchor's user panel into bound (n, positives) counts."""
+    panel = Panel(max_delta=max_delta, n_act=len(LABEL_COLS))
+    first_seen = users.set_index("user_id")["first_seen_at"]
+    seen = users.set_index("user_id")
+    for anchor in anchors:
+        known = cast(pd.Series, first_seen[first_seen < anchor])
+        if known.empty:
+            continue
+        ids = known.index.to_numpy(dtype="int64")
+        frame = seen.loc[ids].reset_index()
+        y = labels_at(tables, anchor, horizon_days, frame)
+        dt_any = days_since_last(streams["any"], anchor, ids)
+        dt_same = np.column_stack(
+            [days_since_last(streams[act], anchor, ids) for act in LABEL_COLS]
+        )
+        usable = (
+            None if usability is None else usability.loc[anchor, :].to_numpy(dtype=bool)
+        )
+        panel.add(dt_any, dt_same, y, anchor, usable)
+        if verbose:
+            print(
+                f"  {anchor:%Y-%m-%d %H:%M}  users={len(ids):5d}  "
+                f"dt_any p50={np.nanmedian(dt_any):5.2f}d  "
+                f"censored={int(np.isnan(dt_any).sum()):4d}  "
+                + " ".join(
+                    f"{act}={int(y[:, j].sum())}" for j, act in enumerate(LABEL_COLS)
+                )
+            )
+    return panel
+
+
+def smoothed_curve(panel: Panel, alpha: float) -> pd.DataFrame:
+    """`curve_table` plus the Laplace-smoothed p per (axis, activity)."""
+    curve = curve_table(panel)
+    curve["p_smooth"] = np.nan
+    for axis in AXES:
+        for act in LABEL_COLS:
+            mask = (curve["axis"] == axis) & (curve["activity"] == act)
+            curve.loc[mask, "p_smooth"] = smoothing(
+                cast(pd.DataFrame, curve.loc[mask]), alpha
+            ).to_numpy()
+    return curve
+
+
 def _mpl() -> Any:
     import matplotlib
 
@@ -651,6 +1052,10 @@ def plot_panels(
         # Laplace smoothing and the CI manufacture a plausible-looking value.
         valid = n > 0
         supported = n >= min_support
+        # Draw only bins that clear `min_support`: at the tail a handful of users
+        # and one positive reads as p = 0.3, which is noise that would dominate
+        # the eye at the right-hand edge. The bar row still shows real support.
+        keep = valid & supported
         last_supported = float(x[supported].max()) if supported.any() else 0.0
 
         ax.axvspan(
@@ -660,25 +1065,39 @@ def plot_panels(
             zorder=0,
             lw=0,
         )
-        ax.bar(
-            x[valid],
-            n[valid] / max(n[valid].max(), 1) * 0.02,
-            color="0.75",
-            width=0.85,
-            zorder=1,
-        )
+        # An activity with no usable anchor at all has an empty `valid` mask;
+        # `n[valid].max()` would then raise on a zero-size reduction.
+        if valid.any():
+            ax.bar(
+                x[valid],
+                n[valid] / max(float(n[valid].max()), 1.0) * 0.02,
+                color="0.75",
+                width=0.85,
+                zorder=1,
+            )
+        else:
+            ax.text(
+                0.5,
+                0.5,
+                "no usable anchors",
+                transform=ax.transAxes,
+                ha="center",
+                va="center",
+                fontsize=8,
+                color="0.45",
+            )
         ax.fill_between(
-            x[valid],
-            dt_rows["ci_lo"].to_numpy()[valid],
-            dt_rows["ci_hi"].to_numpy()[valid],
+            x[keep],
+            dt_rows["ci_lo"].to_numpy()[keep],
+            dt_rows["ci_hi"].to_numpy()[keep],
             color=col,
             alpha=0.18,
             lw=0,
             zorder=2,
         )
         ax.plot(
-            x[valid],
-            p[valid],
+            x[keep],
+            p[keep],
             "o-",
             color=col,
             ms=3.5,
@@ -687,7 +1106,6 @@ def plot_panels(
             label="empirical",
         )
         smoothed = smoothing(dt_rows, 0.5).to_numpy()
-        keep = valid & supported
         if keep.any():
             ax.plot(
                 x[keep],
@@ -736,7 +1154,7 @@ def plot_panels(
             ax.text(
                 (last_supported + panel.max_delta + 1) / 2,
                 0.5,
-                "no support\n(data ends 10-31)",
+                f"no support\n(dt > {int(last_supported)}d unobservable)",
                 transform=ax.get_xaxis_transform(),
                 ha="center",
                 va="center",
@@ -837,6 +1255,64 @@ def plot_distribution(
     ax.set_title(f"P(activity in next 7d | dt), bins with n < {min_support} greyed")
     fig.colorbar(im, ax=ax, label="probability")
     fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def plot_clean_vs_all(
+    curve: pd.DataFrame,
+    comparison: pd.DataFrame,
+    path: Path,
+    min_support: int,
+) -> None:
+    """Same-activity curves with and without the completeness filter.
+
+    Dashed = every anchor (contaminated by the missing hours); solid = clean
+    anchors only. Where the two agree the activity was never affected, so the
+    cheap full-anchor number can be used; where they separate, the gap *is* the
+    data loss and only the solid curve is trustworthy.
+    """
+    plt = _mpl()
+    fig, axes = plt.subplots(2, 3, figsize=(13.5, 7.2), sharex=True)
+    gap = (
+        comparison.set_index("activity")["prevalence_clean"]
+        - (comparison.set_index("activity")["prevalence_all"])
+    )
+    for ax, act in zip(axes.ravel(), LABEL_COLS, strict=True):
+        for quality, style, colour, label in (
+            ("all", "--", "#9a9a9a", "all anchors"),
+            ("clean", "-", "#4c78a8", "clean anchors"),
+        ):
+            rows = curve_slice(
+                cast(pd.DataFrame, curve[curve["quality"] == quality]),
+                "same",
+                act,
+                numeric=True,
+            )
+            if rows.empty:
+                continue
+            ok = rows["n"].to_numpy() >= min_support
+            x = rows["dt_days"].to_numpy()[ok]
+            y = rows["p_smooth"].to_numpy()[ok]
+            ax.plot(x, y, style, color=colour, lw=1.8, label=label)
+        delta = float(gap.get(act, 0.0))
+        ax.set_title(
+            f"{act}   prevalence {delta * 100:+.2f} pp when filtered",
+            fontsize=9,
+        )
+        ax.set_ylim(bottom=0)
+        ax.grid(alpha=0.25, lw=0.5)
+    for ax in axes[1, :]:
+        ax.set_xlabel("Δt = days since the user's last event of that type")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("P(activity within 7 days)")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=2, frameon=False)
+    fig.suptitle(
+        "Effect of the GH Archive completeness filter (dashed vs solid)",
+        fontsize=11,
+    )
+    fig.tight_layout(rect=(0, 0.04, 1, 0.97))
     fig.savefig(path)
     plt.close(fig)
 
@@ -945,6 +1421,10 @@ def write_markdown(
     config: dict[str, Any],
     official: pd.DataFrame,
     path: Path,
+    comparison: pd.DataFrame | None = None,
+    coverage: dict[str, Any] | None = None,
+    clean_official: pd.DataFrame | None = None,
+    fits_unfiltered: dict[str, dict[str, dict[str, float]]] | None = None,
 ) -> None:
     anchors = panel.windows
     lines: list[str] = []
@@ -956,6 +1436,10 @@ def write_markdown(
         f"dt grid 0..{config['max_delta']}d.\n"
     )
     lines.append("## Class rarity and loss weights\n")
+    lines.append(
+        "Denominator here is *known users at each anchor* (pooled over anchors), so "
+        "these prevalences are higher than the all-users numbers further down.\n\n"
+    )
     lines.append(
         "| activity | prevalence | pos_weight | pos / window (mean [min..max]) "
         "| windows all-zero | raw events | users with event |\n"
@@ -1016,32 +1500,209 @@ def write_markdown(
             f"{r['pos_weight_sqrt']:.2f} |\n"
         )
 
+    if clean_official is not None:
+        lines.append(
+            "\n### The same weights measured on clean anchors\n"
+            f"Mean over {int(clean_official['anchors'].iloc[0])} fully-covered anchors, "
+            "same all-users denominator. Use these instead when the official anchor "
+            "week itself is incomplete: a thin hour loses whichever event types its "
+            "shard carried, so a broken week deflates *every* activity's positives, "
+            "not only push.\n"
+        )
+        lines.append(
+            "| activity | prevalence (mean) | range | pos_weight | sqrt pos_weight |\n"
+            "| --- | --- | --- | --- | --- |\n"
+        )
+        for _, r in clean_official.iterrows():
+            lines.append(
+                f"| {r['activity']} | {r['prevalence_mean'] * 100:.2f}% | "
+                f"{r['prevalence_min'] * 100:.2f}-{r['prevalence_max'] * 100:.2f}% | "
+                f"{r['pos_weight']:.2f} | {r['pos_weight_sqrt']:.2f} |\n"
+            )
+
+    any_taus = [fits[act]["any"]["tau_days"] for act in LABEL_COLS]
+    any_taus = [t for t in any_taus if np.isfinite(t)]
+    lo = min(any_taus) if any_taus else float("nan")
+    hi = max(any_taus) if any_taus else float("nan")
     lines.append("\n## How to use these numbers\n")
     lines.append(
         "- `TEMPORAL_EDGE_TAU_DAYS[a]` comes from the **same-type** axis: it is the "
         "decay of P(a) as a function of days since the user's own last `a` event, "
         "so `w = exp(-dt_a / tau_a)` is well scaled per activity. Using the "
-        "any-type tau would over-fade rare activities (tau 1.6-2.6 d).\n"
+        "any-type tau would over-fade every activity "
+        f"(any-type tau is only {lo:.1f}-{hi:.1f} d).\n"
         "- `POS_WEIGHTS[a] = (1-p)/p` is the standard `BCEWithLogitsLoss` weight "
         "if you train on the pooled anchor panel; `sqrt` is the gentler variant "
-        "that does not over-optimise macro-F1 on push.\n"
+        "that does not over-optimise macro-F1 on push. The snippet uses the "
+        "all-users clean-anchor table, which matches the `splits/answer.csv` "
+        "denominator.\n"
         f"- Weekly resonance: {n_bump}/{2 * len(LABEL_COLS)} curves have "
-        f"bump@7 >= +0.15 and {n_cycle}/{2 * len(LABEL_COLS)} keep a spectral "
-        f"peak above the 20%-of-power gate, so "
+        f"bump@7 >= +0.15 and {n_cycle}/{2 * len(LABEL_COLS)} pass the sinusoid "
+        f"scan (r2 >= {PERIOD_R2_GATE:.2f} and amplitude >= {PERIOD_AMP_GATE:.0%} "
+        "of the curve level), so "
         f"{'periodicity is real for ' + str(n_bump) + ' activities' if n_bump else 'the shape is decay to a floor, not periodicity'}"
         ".\n"
     )
+    # Recommended values. Two different biases pull in opposite directions:
+    #   * the full 61-anchor panel is the better estimate for an activity whose
+    #     rows survived, since it has 8x the anchors and the bad days are a
+    #     minority it averages over;
+    #   * the 8-anchor clean panel is the better estimate for an activity whose
+    #     rows were lost, because there a zero-push day is not noise, it is the
+    #     data loss itself stretching every affected user's dt by weeks.
+    # "Rows were lost" is read off the prevalence shift, not hard-coded, so the
+    # rule still holds if a later download shifts the damage to another activity.
+    shifted: set[str] = set()
+    if comparison is not None and not comparison.empty:
+        shifted = {
+            str(r["activity"])
+            for _, r in comparison.iterrows()
+            if abs(float(r["prevalence_clean"]) - float(r["prevalence_all"])) > 0.05
+        }
+    weights = (
+        {
+            str(k): float(v)
+            for k, v in clean_official.set_index("activity")["pos_weight"].items()
+        }
+        if clean_official is not None
+        else {str(r["activity"]): float(r["pos_weight"]) for _, r in summary.iterrows()}
+    )
+
+    # The unfiltered pass ran over every requested anchor, not just `panel`'s.
+    n_full = len(panel.windows)
+    sizes = f"{n_full}-anchor" if fits_unfiltered is None else "all-anchor"
     lines.append("\n## Config snippet\n")
     lines.append("```python\n")
-    lines.append("TEMPORAL_EDGE_TAU_DAYS = {  # edge weight = exp(-dt / tau)\n")
+    lines.append(
+        "# edge weight = exp(-dt_days / tau), dt = days since the user's own last\n"
+        "# event of that type\n"
+        f"# contaminated = {sorted(shifted) or 'none'} (those take the clean-anchor "
+        f"tau; the rest take the {sizes} fit)\n"
+        "TEMPORAL_EDGE_TAU_DAYS = {\n"
+    )
     for _, r in summary.iterrows():
-        tau = fits[str(r["activity"])]["same"]["tau_days"]
+        act = str(r["activity"])
+        src = fits
+        if act not in shifted and fits_unfiltered is not None:
+            src = fits_unfiltered
+        tau = src[act]["same"]["tau_days"]
         tau = tau if np.isfinite(tau) else float(config["fallback_tau"])
-        lines.append(f"    '{r['activity']}': {tau:.2f},\n")
+        note = "  # clean anchors only" if act in shifted else ""
+        lines.append(f"    '{act}': {tau:.2f},{note}\n")
     lines.append("}\n\nPOS_WEIGHTS = {  # BCEWithLogitsLoss(pos_weight=...)\n")
-    for _, r in summary.iterrows():
-        lines.append(f"    '{r['activity']}': {r['pos_weight']:.2f},\n")
+    for act in LABEL_COLS:
+        lines.append(f"    '{act}': {weights[act]:.2f},\n")
     lines.append("}\n```\n")
+
+    if coverage:
+        lines.append("\n## Data completeness\n")
+        lines.append(
+            "GH Archive drops whole event types from individual hours. Each of the "
+            "six activities is audited on its own (\n"
+            "`scripts/verify_raw_data.py`): an hour passes `ok_<activity>` when it "
+            "carries at least "
+            f"{config.get('min_activity_share', 0.30):.0%} of that activity's local "
+            "±7-day median density and no more than "
+            f"{config.get('max_activity_ratio', 4.0):.0f}× it. A day is *clean* for "
+            "an activity when every hour passes; *usable* when the day's total sits "
+            "inside the band and at least "
+            f"{config.get('min_day_hours_share', 0.75):.0%} of its hours pass.\n"
+        )
+        lines.append(
+            f"- hours scanned: {coverage['hours']}, sane for all six: "
+            f"{coverage['hours_ok']} "
+            f"({coverage['hours_ok'] / max(coverage['hours'], 1) * 100:.1f}%), "
+            f"unreadable files: {coverage.get('unreadable', 0)}\n"
+            f"- days: {coverage['days']}, clean for all six: {coverage['days_clean']}, "
+            f"usable for all six: {coverage.get('days_usable', coverage['days_clean'])}\n"
+            f"- longest clean run: {coverage['longest_run']}\n"
+            f"- anchors requested: {coverage['anchors_asked']}, kept by "
+            f"`--clean-days {config.get('clean_days', 'label')}`: "
+            f"{coverage['anchors_kept']}\n"
+        )
+        per_act_clean = coverage.get("days_clean_per_activity")
+        per_act_usable = coverage.get("days_usable_per_activity")
+        if per_act_clean:
+            lines.append(
+                "\n| activity | clean days | usable days | anchors usable |\n"
+                "| --- | --- | --- | --- |\n"
+            )
+            for act in LABEL_COLS:
+                lines.append(
+                    f"| {act} | {per_act_clean.get(act, 0)} | "
+                    f"{(per_act_usable or {}).get(act, 0)} | "
+                    f"{coverage['anchors_per_activity'].get(act, 0)} |\n"
+                )
+        if coverage["bad_days"]:
+            shown = ", ".join(coverage["bad_days"][:18])
+            more = len(coverage["bad_days"]) - 18
+            lines.append(f"- days with an unusable hour: {shown}")
+            lines.append(f"{f' (+{more} more)' if more > 0 else ''}\n")
+        if coverage["anchors_kept"] < 10:
+            lines.append(
+                f"\n> Only {coverage['anchors_kept']} anchor(s) survive the filter, and "
+                "they sit inside one contiguous clean stretch. Treat the filtered "
+                "curves as low-power: the Δt lookback still reaches back across the "
+                "bad days, so a user whose last event fell in a gap looks staler "
+                "than they were and the fitted tau is biased **up**.\n"
+            )
+        if comparison is not None and not comparison.empty:
+            lines.append("\n### Filtered vs unfiltered\n")
+            lines.append(
+                "| activity | prev (all) | prev (clean) | tau (all) | tau (clean) | "
+                "p(1)/p(7) all | p(1)/p(7) clean |\n"
+                "| --- | --- | --- | --- | --- | --- | --- |\n"
+            )
+            for _, r in comparison.iterrows():
+                lines.append(
+                    f"| {r['activity']} | {r['prevalence_all'] * 100:.2f}% | "
+                    f"{r['prevalence_clean'] * 100:.2f}% | "
+                    f"{_num(float(r['tau_all']), '.2f')} | "
+                    f"{_num(float(r['tau_clean']), '.2f')} | "
+                    f"{_num(float(r['ratio_all']), '.2f')} | "
+                    f"{_num(float(r['ratio_clean']), '.2f')} |\n"
+                )
+            shifted_names = (
+                [
+                    str(r["activity"])
+                    for _, r in comparison.iterrows()
+                    if abs(float(r["prevalence_clean"]) - float(r["prevalence_all"]))
+                    > 0.05
+                ]
+                if not comparison.empty
+                else []
+            )
+            example = ""
+            other_max = 0.0
+            for _, r in comparison.iterrows():
+                name = str(r["activity"])
+                shift = abs(float(r["prevalence_clean"]) - float(r["prevalence_all"]))
+                if name in shifted_names:
+                    example = (
+                        f"so `{name}` going "
+                        f"{float(r['prevalence_all']) * 100:.1f}% -> "
+                        f"{float(r['prevalence_clean']) * 100:.1f}% is the data loss"
+                    )
+                else:
+                    other_max = max(other_max, shift)
+            lines.append(
+                "\nTwo things move here, and only one of them is contamination. "
+                "*Prevalence* is the direct read-out: it shifts sharply for the "
+                "activity whose rows are actually missing, "
+                + (
+                    f"{example}, while every other activity stays inside "
+                    f"{other_max * 100:.1f} points. "
+                    if example
+                    else "and no activity moved by more than 5 points, so nothing "
+                    "here looks contaminated. "
+                )
+                + "*Tau* is not: the clean panel holds fewer anchors and its Δt "
+                "lookback still crosses the bad days, which stretches the tail and "
+                "inflates tau. So for an unaffected activity prefer the "
+                f"{n_full}-anchor unfiltered tau, and for "
+                f"{', '.join(f'`{n}`' for n in shifted_names) or 'a damaged activity'} "
+                "prefer the clean prevalence/pos_weight.\n"
+            )
     path.write_text("".join(lines))
 
 
@@ -1090,6 +1751,43 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="tau used in the config snippet when a fit fails",
     )
     ap.add_argument("--no-plots", action="store_true", help="skip the PNG figures")
+    ap.add_argument(
+        "--coverage",
+        default="raw_data/coverage.csv",
+        help="hour-level audit from scripts/verify_raw_data.py",
+    )
+    ap.add_argument(
+        "--coverage-activity",
+        default="raw_data/coverage_activity.csv",
+        help="day x activity audit (carries the day-level density band)",
+    )
+    ap.add_argument(
+        "--clean-days",
+        default="label",
+        choices=("off", "label", "strict"),
+        help=(
+            "which anchors to trust: 'off' keeps all, 'label' needs every day of "
+            "the label window to be fully covered, 'strict' also needs the whole "
+            "dt lookback covered"
+        ),
+    )
+    ap.add_argument(
+        "--min-hour-volume-share",
+        type=float,
+        default=0.25,
+        help="an hour is thin below this share of the corpus median event count",
+    )
+    ap.add_argument(
+        "--min-hour-push-share",
+        type=float,
+        default=0.30,
+        help="an hour is mis-composed below this PushEvent share",
+    )
+    ap.add_argument(
+        "--no-unfiltered",
+        action="store_true",
+        help="skip the unfiltered comparison pass (only meaningful with --clean-days)",
+    )
     return ap.parse_args(argv)
 
 
@@ -1137,29 +1835,132 @@ def main(argv: list[str] | None = None) -> int:
     print(f"dt grid          : 0..{args.max_delta} days")
 
     streams = activity_streams(tables, user_ids)
-    panel = Panel(max_delta=args.max_delta, n_act=len(LABEL_COLS))
-    first_seen = users.set_index("user_id")["first_seen_at"]
 
-    for anchor in anchors:
-        known = cast(pd.Series, first_seen[first_seen < anchor])
-        if known.empty:
-            continue
-        ids = known.index.to_numpy(dtype="int64")
-        frame = users.set_index("user_id").loc[ids].reset_index()
-        y = labels_at(tables, anchor, args.horizon_days, frame)
-        dt_any = days_since_last(streams["any"], anchor, ids)
-        dt_same = np.column_stack(
-            [days_since_last(streams[act], anchor, ids) for act in LABEL_COLS]
+    coverage: dict[str, Any] | None = None
+    per_day: pd.DataFrame | None = None
+    coverage_path = Path(args.coverage)
+    raw_cov: pd.DataFrame | None = None
+    if coverage_path.exists():
+        raw_cov = pd.read_csv(coverage_path, dtype={"day": str})
+        activity_path = Path(args.coverage_activity)
+        activity_day = (
+            load_activity_coverage(activity_path) if activity_path.exists() else None
         )
-        panel.add(dt_any, dt_same, y, anchor)
+        per_day = day_quality(
+            load_coverage(coverage_path),
+            args.min_hour_volume_share,
+            args.min_hour_push_share,
+            activity_day,
+        )
+    elif args.clean_days != "off":
         print(
-            f"  {anchor:%Y-%m-%d %H:%M}  users={len(ids):5d}  "
-            f"dt_any p50={np.nanmedian(dt_any):5.2f}d  "
-            f"censored={int(np.isnan(dt_any).sum()):4d}  "
-            + " ".join(
-                f"{act}={int(y[:, j].sum())}" for j, act in enumerate(LABEL_COLS)
-            )
+            f"warning: {coverage_path} not found, running unfiltered "
+            "(build it with `python -m scripts.verify_raw_data`)"
         )
+
+    # An anchor outside the downloaded data contributes no positives and a huge
+    # dt for every user, which reads as "nobody is active" rather than "not
+    # observed". Restrict to days the corpus actually covers before any
+    # quality filtering, so a download gap cannot look like decay.
+    if per_day is not None and not per_day.empty:
+        covered = pd.DatetimeIndex(pd.to_datetime(per_day.index))
+        in_data = [a for a in anchors if a.normalize() in covered]
+        if len(in_data) < len(anchors):
+            print(
+                f"anchors in data  : {len(in_data)}/{len(anchors)} "
+                f"(dropped {len(anchors) - len(in_data)} with no audited hours)"
+            )
+        anchors = in_data
+        if not anchors:
+            print("no anchor falls inside the audited data")
+            return 1
+
+    kept = anchors
+    usability: pd.DataFrame | None = None
+    if per_day is not None and args.clean_days != "off":
+        # Usability is per (anchor, activity), not per anchor: an anchor stays
+        # in as long as *some* activity has an intact stream around it, and each
+        # activity then contributes only its own usable cells.
+        usability = anchor_usability(
+            anchors, per_day, args.clean_days, args.horizon_days, args.max_delta
+        )
+        kept = [anchor for anchor in anchors if bool(usability.loc[anchor].any())]
+        clean_flag = per_day["clean"].astype(bool).to_numpy()
+        runs = _runs(clean_flag)
+        longest = max(runs, key=lambda r: r[1] - r[0]) if runs else (0, 0)
+        days = pd.to_datetime(per_day.index)
+        unreadable = 0 if raw_cov is None else int((~raw_cov["events"].notna()).sum())
+        coverage = {
+            "unreadable": unreadable,
+            "hours": int(per_day["hours"].sum()),
+            "hours_ok": int(
+                per_day["hours_ok_all"].sum()
+                if "hours_ok_all" in per_day.columns
+                else per_day["hours_ok"].sum()
+            ),
+            "days": len(per_day),
+            "days_clean": int(clean_flag.sum()),
+            "days_usable": int(per_day["usable"].astype(bool).sum())
+            if "usable" in per_day.columns
+            else int(clean_flag.sum()),
+            "days_clean_per_activity": {
+                act: (
+                    int(per_day[f"clean_{act}"].astype(bool).sum())
+                    if f"clean_{act}" in per_day.columns
+                    else int(clean_flag.sum())
+                )
+                for act in LABEL_COLS
+            },
+            "days_usable_per_activity": {
+                act: (
+                    int(per_day[f"usable_{act}"].astype(bool).sum())
+                    if f"usable_{act}" in per_day.columns
+                    else int(clean_flag.sum())
+                )
+                for act in LABEL_COLS
+            },
+            "longest_run": (
+                f"{days[longest[0]]:%Y-%m-%d} .. {days[longest[1] - 1]:%Y-%m-%d} "
+                f"({longest[1] - longest[0]}d)"
+                if runs
+                else "none"
+            ),
+            "anchors_asked": len(anchors),
+            "anchors_kept": len(kept),
+            "anchors_per_activity": {
+                act: int(usability[act].sum()) for act in LABEL_COLS
+            },
+            "bad_days": [f"{d:%Y-%m-%d}" for d in days[~clean_flag]],
+            "kept": [f"{a:%Y-%m-%d}" for a in kept],
+        }
+        print(
+            f"completeness     : {coverage['days_clean']}/{coverage['days']} clean "
+            f"days ({coverage['hours_ok']}/{coverage['hours']} sane hours), "
+            f"longest run {coverage['longest_run']}"
+        )
+        print(
+            f"anchors kept     : {len(kept)}/{len(anchors)} anchors, "
+            f"per activity "
+            + " ".join(
+                f"{act}={coverage['anchors_per_activity'][act]}" for act in LABEL_COLS
+            )
+            + f" (--clean-days {args.clean_days})"
+        )
+    if not kept:
+        print("no anchor survives the completeness filter; try --clean-days off")
+        return 1
+
+    panel = build_panel(
+        tables,
+        users,
+        streams,
+        kept,
+        args.horizon_days,
+        args.max_delta,
+        usability=None
+        if usability is None
+        else cast(pd.DataFrame, usability.loc[kept]),
+    )
 
     official = cast(
         pd.Timestamp, data_end.normalize() - pd.Timedelta(days=args.horizon_days)
@@ -1182,6 +1983,41 @@ def main(argv: list[str] | None = None) -> int:
             ),
         }
     )
+    # The official anchor can land on a week GH Archive lost, which deflates the
+    # positives for every activity, not just push (a thin hour loses whichever
+    # event types its shard carried). The same all-users denominator measured on
+    # clean anchors is the like-for-like replacement.
+    clean_rows: pd.DataFrame | None = None
+    if kept != anchors:
+        per_anchor = np.column_stack(
+            [
+                labels_at(tables, anchor, args.horizon_days, users).mean(axis=0)
+                for anchor in kept
+            ]
+        )
+        mean_prev = per_anchor.mean(axis=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            weights = (1.0 - mean_prev) / mean_prev
+        clean_rows = pd.DataFrame(
+            {
+                "activity": LABEL_COLS,
+                "prevalence_mean": mean_prev,
+                "prevalence_min": per_anchor.min(axis=1),
+                "prevalence_max": per_anchor.max(axis=1),
+                "users": len(users),
+                "anchors": len(kept),
+                "pos_weight": weights,
+                "pos_weight_sqrt": np.sqrt(weights),
+            }
+        )
+        print(
+            "clean-anchor weights (all users): "
+            + " ".join(
+                f"{r['activity']!s}={r['pos_weight']:.2f}"
+                for _, r in clean_rows.iterrows()
+            )
+        )
+
     answer_path = Path("splits/answer.csv")
     if answer_path.exists():
         truth = pd.read_csv(answer_path).set_index("UserID")
@@ -1198,23 +2034,80 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(shared)}/{len(mine)} users match, cell agreement {agree:.4f}"
         )
 
-    curve = curve_table(panel)
-    curve["p_smooth"] = np.nan
-    for axis in AXES:
-        for act in LABEL_COLS:
-            mask = (curve["axis"] == axis) & (curve["activity"] == act)
-            curve.loc[mask, "p_smooth"] = smoothing(
-                cast(pd.DataFrame, curve.loc[mask]), args.smooth_alpha
-            ).to_numpy()
-
+    curve = smoothed_curve(panel, args.smooth_alpha)
     summary, fits = summarise(panel, curve, args.min_support, args.smooth_alpha)
     events = event_stats(tables, user_ids)
 
+    # The filtered panel is authoritative, but the unfiltered one is kept so the
+    # contamination is visible instead of silently baked in. Reporting both turns
+    # "which activity is broken?" into a number the reader can check.
+    comparison: pd.DataFrame | None = None
+    summary_all: pd.DataFrame | None = None
+    fits_all: dict[str, dict[str, dict[str, float]]] | None = None
+    if coverage is not None and not args.no_unfiltered and len(kept) < len(anchors):
+        print("running the unfiltered comparison pass ...")
+        panel_all = build_panel(
+            tables,
+            users,
+            streams,
+            anchors,
+            args.horizon_days,
+            args.max_delta,
+            verbose=False,
+        )
+        curve_all = smoothed_curve(panel_all, args.smooth_alpha)
+        summary_all, fits_all = summarise(
+            panel_all, curve_all, args.min_support, args.smooth_alpha
+        )
+        rows: list[dict[str, Any]] = []
+        for _, r in summary.iterrows():
+            act = str(r["activity"])
+            other = cast(pd.DataFrame, summary_all).set_index("activity").loc[act]
+            rows.append(
+                {
+                    "activity": act,
+                    "prevalence_all": float(other["prevalence_pooled"]),
+                    "prevalence_clean": float(r["prevalence_pooled"]),
+                    "tau_all": float(fits_all[act]["same"]["tau_days"]),
+                    "tau_clean": float(fits[act]["same"]["tau_days"]),
+                    "ratio_all": float(fits_all[act]["same"]["decay_ratio_1_7"]),
+                    "ratio_clean": float(fits[act]["same"]["decay_ratio_1_7"]),
+                    "pos_weight_all": float(other["pos_weight"]),
+                    "pos_weight_clean": float(r["pos_weight"]),
+                }
+            )
+        comparison = pd.DataFrame(rows)
+
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    curve.to_csv(out / "decay_curves.csv", index=False)
-    summary.to_csv(out / "activity_summary.csv", index=False)
+    curve = curve.assign(quality="clean" if coverage else "all")
+    written_curve = curve
+    written_summary = summary
+    if summary_all is not None and coverage is not None:
+        alt_curve = smoothed_curve(
+            build_panel(
+                tables,
+                users,
+                streams,
+                anchors,
+                args.horizon_days,
+                args.max_delta,
+                verbose=False,
+            ),
+            args.smooth_alpha,
+        ).assign(quality="all")
+        written_curve = pd.concat([curve, alt_curve], ignore_index=True)
+        written_summary = pd.concat(
+            [summary.assign(quality="clean"), summary_all.assign(quality="all")],
+            ignore_index=True,
+        )
+    written_curve.to_csv(out / "decay_curves.csv", index=False)
+    written_summary.to_csv(out / "activity_summary.csv", index=False)
     official_rows.to_csv(out / "official_window_weights.csv", index=False)
+    if clean_rows is not None:
+        clean_rows.to_csv(out / "official_window_weights_clean.csv", index=False)
+    if comparison is not None:
+        comparison.to_csv(out / "clean_vs_unfiltered.csv", index=False)
 
     config = {
         "db": args.db,
@@ -1229,6 +2122,10 @@ def main(argv: list[str] | None = None) -> int:
         "fallback_tau": args.fallback_tau,
         "n_cohort_users": len(user_ids),
         "official_anchor": official.isoformat(),
+        "clean_days": args.clean_days,
+        "min_hour_volume_share": args.min_hour_volume_share,
+        "min_hour_push_share": args.min_hour_push_share,
+        "coverage": coverage,
         "support_note": (
             "dt bins beyond (last_anchor - data_start) days have no support: a "
             f"{args.horizon_days}-day label needs anchors before the last row, which "
@@ -1248,10 +2145,25 @@ def main(argv: list[str] | None = None) -> int:
     payload = {
         "config": config,
         "activity_summary": summary.to_dict(orient="records"),
+        "activity_summary_unfiltered": (
+            summary_all.to_dict(orient="records") if summary_all is not None else None
+        ),
+        "clean_vs_unfiltered": (
+            comparison.to_dict(orient="records") if comparison is not None else None
+        ),
         "events": events.to_dict(orient="records"),
         "curves": {act: fits[act] for act in LABEL_COLS},
         "temporal_edge_tau_days": edge_tau,
         "pos_weights": pos_weights,
+        "official_window_clean": (
+            None
+            if clean_rows is None
+            else {
+                "anchors": [f"{a:%Y-%m-%d}" for a in kept],
+                "users": len(users),
+                "weights": clean_rows.to_dict(orient="records"),
+            }
+        ),
         "official_window": {
             "anchor": official.isoformat(),
             "horizon_days": args.horizon_days,
@@ -1263,7 +2175,17 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(_jsonable(payload), indent=2) + "\n"
     )
     write_markdown(
-        summary, events, fits, panel, config, official_rows, out / "summary.md"
+        summary,
+        events,
+        fits,
+        panel,
+        config,
+        official_rows,
+        out / "summary.md",
+        comparison=comparison,
+        coverage=coverage,
+        clean_official=clean_rows,
+        fits_unfiltered=fits_all,
     )
 
     if not args.no_plots:
@@ -1278,6 +2200,13 @@ def main(argv: list[str] | None = None) -> int:
             panel, curve, out / "04_dt_distribution.png", args.min_support
         )
         plot_rarity(summary, events, out / "05_class_rarity.png")
+        if comparison is not None and written_curve["quality"].nunique() > 1:
+            plot_clean_vs_all(
+                written_curve,
+                comparison,
+                out / "06_clean_vs_all.png",
+                args.min_support,
+            )
 
     ev = events.set_index("activity")
     print("\nclass rarity and loss weights")

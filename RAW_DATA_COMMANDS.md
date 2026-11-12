@@ -20,6 +20,10 @@ python -m src.data.make_split
 ```
 
 ```
+WANDB_API_KEY="[REDACTED-WANDB-KEY]" python -m scripts.run_training --anchor-end 2026-10-18 --anchor-stride 14
+```
+
+```
 winget install Graphviz.Graphviz
 ```
 
