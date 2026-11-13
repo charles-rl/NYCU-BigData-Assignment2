@@ -7,6 +7,7 @@ replica of the TA ``scripts/evaluate.py`` scorer.  Threshold search lives in
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ import torch.nn.functional as F
 import wandb
 from torch import nn
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts
 
 from src.models.hetero_model import GitHubHeteroHGT
 from src.utils.metrics import ACTIVITY_NAMES, score_in_memory
@@ -34,6 +35,12 @@ __all__ = [
     "train_model",
     "train_model_multi_anchor",
 ]
+
+# Where wandb writes its `wandb/` run directory.  It must NOT default to the
+# repository root: a top-level directory named `wandb` makes every isort-style
+# linter classify the third-party `wandb` package as local code and demand the
+# import be moved, which flaps depending on whether a run has happened yet.
+WANDB_DIR = os.environ.get("WANDB_DIR", "logs")
 
 
 @dataclass
@@ -103,6 +110,115 @@ def _as_numpy_bool(x) -> np.ndarray:
     return arr.astype(bool)
 
 
+def _eta_min(base_lr: float) -> float:
+    """Floor for the schedule: 1% of the base lr, never below 1e-5."""
+    return max(1e-5, base_lr * 0.01)
+
+
+def _scheduler_config(
+    schedule: str, epochs: int, base_lr: float, t0: int, t_mult: int
+) -> dict[str, object]:
+    """Describe the learning-rate schedule for ``wandb.config``.
+
+    Validation happens here so both trainers share one definition of the
+    allowed values.
+    """
+    if schedule not in {"cosine", "warm-restarts", "none"}:
+        raise ValueError(
+            f"lr_schedule must be 'cosine', 'warm-restarts' or 'none', got {schedule!r}"
+        )
+    if schedule == "warm-restarts" and t0 < 1:
+        raise ValueError(f"lr_t0 must be >= 1, got {t0}")
+    cfg: dict[str, object] = {
+        "scheduler": {
+            "cosine": "CosineAnnealingLR",
+            "warm-restarts": "CosineAnnealingWarmRestarts",
+            "none": "constant",
+        }[schedule],
+        "scheduler_eta_min": _eta_min(base_lr),
+    }
+    if schedule == "cosine":
+        cfg["scheduler_t_max"] = epochs
+    elif schedule == "warm-restarts":
+        cfg["scheduler_t0"] = t0
+        cfg["scheduler_t_mult"] = t_mult
+    return cfg
+
+
+def _build_scheduler(
+    optimizer: torch.optim.Optimizer,
+    schedule: str,
+    epochs: int,
+    base_lr: float,
+    t0: int,
+    t_mult: int,
+):
+    """Build the lr scheduler (``None`` means a constant lr).
+
+    ``"cosine"`` is one monotone cosine from ``base_lr`` to ``eta_min`` spread
+    over the *whole* run, so raising ``epochs`` stretches a single decay rather
+    than repeating it.  ``"warm-restarts"`` is the sawtooth: lr snaps back to
+    ``base_lr`` at the end of every cycle, which lets the model escape a
+    plateau after the cosine has bottomed out.  Cycle ``k`` lasts
+    ``t0 * t_mult**k`` epochs, so ``t_mult > 1`` grows them geometrically
+    (5, 10, 20, 40, ...) while ``t_mult == 1`` keeps them constant.
+    """
+    _scheduler_config(schedule, epochs, base_lr, t0, t_mult)
+    if schedule == "cosine":
+        return CosineAnnealingLR(optimizer, T_max=epochs, eta_min=_eta_min(base_lr))
+    if schedule == "warm-restarts":
+        return CosineAnnealingWarmRestarts(
+            optimizer, T_0=t0, T_mult=t_mult, eta_min=_eta_min(base_lr)
+        )
+    return None
+
+
+def _current_lr(scheduler, optimizer: torch.optim.Optimizer) -> float:
+    """Learning rate actually in effect for the next step."""
+    if scheduler is None:
+        return float(optimizer.param_groups[0]["lr"])
+    return float(scheduler.get_last_lr()[0])
+
+
+def _fit_thresholds_on_train(
+    *,
+    train_probs: np.ndarray,
+    train_labels: np.ndarray,
+    val_probs: np.ndarray,
+    val_labels: np.ndarray,
+    sigma0: float,
+    popsize: int,
+    maxfevals: int,
+) -> tuple[np.ndarray, dict[str, Any], dict[str, Any]]:
+    """Fit the six thresholds on TRAINING rows, then apply them to validation.
+
+    The thresholds are parameters fitted by optimization (3000 evaluations over
+    6 variables), so fitting them on the validation week and reporting the score
+    of that same week would be train-on-test leakage.  The optimizer therefore
+    never sees a validation label or probability; the returned validation
+    metrics are the honest held-out score of the fitted theta.
+
+    Returns ``(theta, val_metrics, fit_metrics)`` where ``val_metrics`` is the
+    score of ``theta`` on the validation rows and ``fit_metrics`` the score on
+    the rows theta was fitted on.
+    """
+    if train_probs is None or train_labels is None or len(train_probs) == 0:
+        raise ValueError("cannot fit thresholds: no training probabilities")
+
+    theta, fit_metrics = optimize_thresholds_cmaes(
+        train_labels,
+        train_probs,
+        sigma0=sigma0,
+        popsize=popsize,
+        maxfevals=maxfevals,
+    )
+
+    val_metrics = score_in_memory(
+        val_labels, (val_probs >= theta[None, :]).astype(np.int64)
+    )
+    return theta, dict(val_metrics), dict(fit_metrics)
+
+
 def train_model(
     model: GitHubHeteroHGT,
     train_graph,
@@ -118,6 +234,9 @@ def train_model(
     weight_decay: float = 1e-4,
     val_interval: int = 5,
     grad_clip: float = 1.0,
+    lr_schedule: str = "warm-restarts",
+    lr_t0: int = 5,
+    lr_t_mult: int = 2,
     cma_sigma0: float = 0.15,
     cma_popsize: int = 16,
     cma_maxfevals: int = 3000,
@@ -153,8 +272,7 @@ def train_model(
             "weight_decay": weight_decay,
             "pos_weights": pos_weights,
             "optimizer": "AdamW",
-            "scheduler": "CosineAnnealingLR",
-            "scheduler_t_max": epochs,
+            **_scheduler_config(lr_schedule, epochs, lr, lr_t0, lr_t_mult),
             "grad_clip_max_norm": grad_clip,
             "threshold_optimizer": "CMA-ES",
             "cma_sigma0": cma_sigma0,
@@ -163,6 +281,7 @@ def train_model(
             "device": device,
             **(extra_config or {}),
         },
+        dir=WANDB_DIR,
     )
 
     model = model.to(device)
@@ -184,9 +303,10 @@ def train_model(
     criterion = nn.BCEWithLogitsLoss(pos_weight=weight_tensor)
 
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    # One scheduler step per epoch for `epochs` epochs: cosine decays lr from
-    # `lr` to `eta_min` over the whole run.
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
+    # One scheduler step per epoch.  "cosine" decays lr from `lr` to eta_min
+    # over the whole run (so a bigger `epochs` stretches one cosine, it does not
+    # repeat it); "warm-restarts" snaps back to `lr` every `lr_t0` epochs.
+    scheduler = _build_scheduler(optimizer, lr_schedule, epochs, lr, lr_t0, lr_t_mult)
 
     y_train = train_labels.to(device).float()
 
@@ -207,12 +327,13 @@ def train_model(
         # value is the pre-clipping norm, useful for spotting instability.
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
         optimizer.step()
-        scheduler.step()
+        if scheduler is not None:
+            scheduler.step()
 
         log_dict: dict[str, object] = {
             "train/loss": loss.item(),
             "train/grad_norm": grad_norm.item(),
-            "train/lr": scheduler.get_last_lr()[0],
+            "train/lr": _current_lr(scheduler, optimizer),
             "epoch": epoch,
         }
 
@@ -248,10 +369,20 @@ def train_model(
             default_preds = (val_probs_cohort >= 0.5).astype(np.int64)
             default_metrics = score_in_memory(val_labels, default_preds)
 
-            # Joint threshold optimization on the aligned cohort rows
-            th, cma_metrics = optimize_thresholds_cmaes(
-                val_labels,
-                val_probs_cohort,
+            # Theta is fitted on TRAINING rows only and merely applied here, so
+            # the validation score is held out rather than tuned-on-test.  The
+            # in-loop train probabilities carry dropout noise, so recompute them
+            # in eval mode before fitting.
+            model.eval()
+            with torch.no_grad():
+                eval_train_probs = (
+                    torch.sigmoid(model(train_graph)[train_mask]).cpu().numpy()
+                )
+            th, cma_metrics, fit_metrics = _fit_thresholds_on_train(
+                train_probs=eval_train_probs,
+                train_labels=train_true,
+                val_probs=val_probs_cohort,
+                val_labels=val_labels,
                 sigma0=cma_sigma0,
                 popsize=cma_popsize,
                 maxfevals=cma_maxfevals,
@@ -262,12 +393,16 @@ def train_model(
                     "val/loss": val_loss.item(),
                     "val/score_default_0.5": default_metrics["score"],
                     "val/score_cmaes": cma_metrics["score"],
-                    "val/score_cmaes_initial": cma_metrics["initial_score"],
+                    "val/score_theta_on_fit_set": fit_metrics["score"],
                     "val/macro_f1": cma_metrics["macro_f1"],
                     "val/micro_f1": cma_metrics["micro_f1"],
-                    "val/cma_generations": cma_metrics["n_generations"],
-                    "val/cma_evaluations": cma_metrics["n_evaluations"],
+                    "val/cma_generations": fit_metrics["n_generations"],
+                    "val/cma_evaluations": fit_metrics["n_evaluations"],
                 }
+            )
+            # How much of the in-sample gain survives the move to unseen rows.
+            log_dict["val/score_cmaes_optimistic"] = (
+                fit_metrics["score"] - cma_metrics["score"]
             )
 
             # Log per-class F1 and learned thresholds to W&B
@@ -401,6 +536,9 @@ def train_model_multi_anchor(
     weight_decay: float = 1e-4,
     val_interval: int = 5,
     grad_clip: float = 1.0,
+    lr_schedule: str = "warm-restarts",
+    lr_t0: int = 5,
+    lr_t_mult: int = 2,
     cma_sigma0: float = 0.15,
     cma_popsize: int = 16,
     cma_maxfevals: int = 3000,
@@ -452,8 +590,7 @@ def train_model_multi_anchor(
             "weight_decay": weight_decay,
             "pos_weights": pos_weights,
             "optimizer": "AdamW",
-            "scheduler": "CosineAnnealingLR",
-            "scheduler_t_max": epochs,
+            **_scheduler_config(lr_schedule, epochs, lr, lr_t0, lr_t_mult),
             "grad_clip_max_norm": grad_clip,
             "threshold_optimizer": "CMA-ES",
             "cma_sigma0": cma_sigma0,
@@ -465,6 +602,7 @@ def train_model_multi_anchor(
             "anchor_observed_entries": [a.n_observed for a in train_anchors],
             **(extra_config or {}),
         },
+        dir=WANDB_DIR,
     )
 
     model = model.to(device)
@@ -476,7 +614,7 @@ def train_model_multi_anchor(
     criterion = nn.BCEWithLogitsLoss(pos_weight=weight_tensor)
 
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
+    scheduler = _build_scheduler(optimizer, lr_schedule, epochs, lr, lr_t0, lr_t_mult)
 
     shares = np.array([a.n_observed for a in train_anchors], dtype=np.float64)
     shares /= shares.sum()
@@ -533,12 +671,13 @@ def train_model_multi_anchor(
         else:
             grad_norm_value = 0.0
         optimizer.step()
-        scheduler.step()
+        if scheduler is not None:
+            scheduler.step()
 
         log_dict: dict[str, object] = {
             "train/loss": epoch_loss,
             "train/grad_norm": grad_norm_value,
-            "train/lr": scheduler.get_last_lr()[0],
+            "train/lr": _current_lr(scheduler, optimizer),
             "train/anchors": len(train_anchors),
             "epoch": epoch,
         }
@@ -570,9 +709,33 @@ def train_model_multi_anchor(
             default_metrics = score_in_memory(
                 val_labels, (val_probs_cohort >= 0.5).astype(np.int64)
             )
-            th, cma_metrics = optimize_thresholds_cmaes(
-                val_labels,
-                val_probs_cohort,
+
+            # Thresholds are fitted on TRAINING rows only, then applied here.
+            # The in-loop train probabilities carry dropout noise, so recompute
+            # them in eval mode before fitting.
+            model.eval()
+            parts_p: list[np.ndarray] = []
+            parts_y: list[np.ndarray] = []
+            for anchor in train_anchors:
+                graph, moved = _to_device(anchor.graph, device)
+                row_mask = torch.from_numpy(anchor.mask).to(
+                    device=device, dtype=torch.bool
+                )
+                with torch.no_grad():
+                    anchor_logits = model(graph)[row_mask]
+                    full = anchor.observed[anchor.mask].all(axis=1)
+                    if full.any():
+                        parts_p.append(torch.sigmoid(anchor_logits).cpu().numpy()[full])
+                        parts_y.append(anchor.labels[anchor.mask][full])
+                del anchor_logits
+                if moved:
+                    anchor.graph = anchor.graph.to("cpu")
+
+            th, cma_metrics, fit_metrics = _fit_thresholds_on_train(
+                train_probs=np.concatenate(parts_p),
+                train_labels=np.concatenate(parts_y),
+                val_probs=val_probs_cohort,
+                val_labels=val_labels,
                 sigma0=cma_sigma0,
                 popsize=cma_popsize,
                 maxfevals=cma_maxfevals,
@@ -583,13 +746,17 @@ def train_model_multi_anchor(
                     "val/loss": val_loss.item(),
                     "val/score_default_0.5": default_metrics["score"],
                     "val/score_cmaes": cma_metrics["score"],
-                    "val/score_cmaes_initial": cma_metrics["initial_score"],
+                    "val/score_theta_on_fit_set": fit_metrics["score"],
                     "val/macro_f1": cma_metrics["macro_f1"],
                     "val/micro_f1": cma_metrics["micro_f1"],
-                    "val/cma_generations": cma_metrics["n_generations"],
-                    "val/cma_evaluations": cma_metrics["n_evaluations"],
+                    "val/cma_generations": fit_metrics["n_generations"],
+                    "val/cma_evaluations": fit_metrics["n_evaluations"],
                 }
             )
+            log_dict["val/score_cmaes_optimistic"] = (
+                fit_metrics["score"] - cma_metrics["score"]
+            )
+
             for i, act in enumerate(ACTIVITY_NAMES):
                 log_dict[f"val_f1/{act}"] = cma_metrics["per_class_f1"][i]
                 log_dict[f"val_threshold/{act}"] = float(th[i])

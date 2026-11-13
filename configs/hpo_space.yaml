@@ -1,0 +1,115 @@
+# HPO search space for the HGT trainer (scripts/run_training.py).
+#
+# Fill in `space`. Everything under `fixed` is passed verbatim to every trial,
+# so every trial is scored on the SAME objective. Nothing here is read by
+# scripts/run_training.py -- this file is consumed by the (not yet written)
+# scripts/hpo.py, which shells out one run_training.py process per trial.
+#
+# ---------------------------------------------------------------------------
+# VALUE SYNTAX for entries under `space`
+# ---------------------------------------------------------------------------
+#   null                -> do not search, use the run_training.py default
+#   [a, b, c, ...]      -> auto-typed by inference (rules below)
+#   "log: [lo, hi]"     -> log-uniform float, sampler feeds exp(U(ln lo, ln hi))
+#   "linear: [lo, hi]"  -> uniform float
+#   "int: [lo, hi]"     -> integer, inclusive on both ends
+#   "cat: [a, b, c]"    -> categorical, sampled uniformly
+#
+# These prefixed forms MUST be written as a quoted scalar ("int: [3, 10]").
+# Unquoted, YAML reads them as a nested mapping and the file fails to parse.
+#
+# Bare-list inference (what you get if you just write a list):
+#   * any string present           -> categorical
+#   * all ints                     -> categorical
+#   * all floats, hi/lo >= 10      -> log-uniform  (e.g. lr [0.001, 1.0e-6])
+#   * all floats, hi/lo <  10      -> uniform      (e.g. dropout [0.0, 0.5])
+# Use the explicit log:/linear: prefixes when inference guesses wrong.
+#
+# GOTCHA: YAML needs a digit before '.' in exponents. Write 1.0e-4, NOT 1e-4 --
+# bare `1e-4` parses as the STRING "1e-4" in PyYAML (verified).
+#
+# ---------------------------------------------------------------------------
+# HARD CONSTRAINTS (the sampler must respect these; see `constraints`)
+# ---------------------------------------------------------------------------
+#   latent_dim % num_heads == 0
+#     torch_geometric HGTConv raises:
+#     "'out_channels' (got N) must be divisible by the number of heads"
+#
+# ---------------------------------------------------------------------------
+# COST (measured, this machine: RTX PRO 6000 Blackwell, 128 logical cores)
+#   run-20261112_085910-m1b81uc5 : 150 epochs  -> 1652 s  (11.01 s/epoch)
+#   run-20261112_093155-sp4iwemo : 1000 epochs -> 10754 s (10.75 s/epoch)
+#   both: n_anchors=8, n_train_rows=40403, 778,726 parameters
+#   => 310 epochs ~= 56 min + ~2-3 min startup ~= 58-60 min per trial
+#   Cost is linear in epochs and ~linear in n_anchors, so a later val_cutoff
+#   (more anchors) costs more. Changing val_cutoff changes the objective.
+# ---------------------------------------------------------------------------
+
+study:
+  name: hgt-hpo
+  sampler: tpe                 # tpe | botorch | random
+  direction: maximize          # maximize val/score_cmaes
+  seed: 42
+  n_trials: 60                 # plan: 8h@6 workers ~= 43, 12h@6 ~= 65
+  n_jobs: 6                    # parallel worker processes
+  storage: sqlite:///hpo/study.db   # shared across workers; resumable
+  max_failures: 3              # skip a trial that crashes (OOM, NaN divergence)
+
+# ===========================================================================
+# FIXED across every trial. Changing anything here changes the objective and
+# makes trials incomparable. Keep these at your best known run's values.
+# ===========================================================================
+fixed:
+  epochs: 310                  # your measured optimum; fix for comparability
+  val_interval: 5
+  val_cutoff: "2026-02-15"     # docs/VALIDATION_DATA.md primary safe week
+  days: 7
+  val_mode: temporal
+  anchors: auto
+  anchor_start: "2025-12-22"
+  anchor_stride: 7
+  max_anchors: 0
+  pos_weights: doc             # [7.28, 18.08, 11.05, 12.83, 19.29, 1.32]
+  cma_sigma0: 0.15             # inner threshold optimizer, not a model HP
+  cma_popsize: 16
+  cma_maxfevals: 3000
+  seed: 42                     # fixed => deterministic objective per trial
+  grad_clip: 1.0
+  wandb_mode: disabled         # offline/disabled: no network, no run dirs
+
+# ===========================================================================
+# SEARCH SPACE -- edit the lists. Values below are a starter guess, not a
+# recommendation: 8 dims is about the practical ceiling for TPE at ~60 trials.
+# ===========================================================================
+space:
+  # --- optimisation -------------------------------------------------------
+  lr: [0.001, 1.0e-6]              # log-uniform, 4 orders of magnitude
+  weight_decay: [1.0e-6, 1.0e-2]   # log-uniform
+  lr_schedule: [warm-restarts, cosine, none]   # categorical
+  lr_t0: "int: [3, 10]"            # only read when lr_schedule is warm-restarts
+  lr_t_mult: "cat: [1, 2]"         # 2 => cycles 5,10,20,40,80,160
+
+  # --- architecture -------------------------------------------------------
+  hidden_dim: [64, 128, 256]           # NodeMLPEncoder width
+  latent_dim: [32, 64, 128, 256]       # HGT message-passing width
+  head_hidden_dim: [32, 64, 128]       # PredictionHead width
+  num_heads: [2, 4, 8]                 # must divide latent_dim
+  num_gnn_layers: "int: [1, 3]"        # 1 = no message passing past encoders
+  dropout: [0.0, 0.5]                  # uniform
+
+  # --- deliberately NOT searched (leave commented out) --------------------
+  # grad_clip: [0.5, 5.0]        # uncomment to search; low = tight trust region
+  # cma_sigma0: [0.05, 0.30]     # nested HP of the threshold optimiser; skip
+  # cma_popsize: "cat: [8, 16, 32]"
+  # cma_maxfevals: "cat: [1000, 3000, 6000]"
+
+# Sampler-side constraint, enforced by resampling in the hpo driver.
+constraints:
+  - name: heads_divide_latent
+    rule: latent_dim % num_heads == 0
+    action: resample
+
+# Knobs that follow from a choice instead of being sampled independently.
+conditionals:
+  lr_t0: {when: {lr_schedule: warm-restarts}, else: 5}
+  lr_t_mult: {when: {lr_schedule: warm-restarts}, else: 2}

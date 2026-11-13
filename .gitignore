@@ -25,3 +25,4 @@ wandb/
 
 # training artifacts
 checkpoints/
+.wandb-runs/

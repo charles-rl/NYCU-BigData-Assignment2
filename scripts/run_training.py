@@ -135,6 +135,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--val-fraction", type=float, default=0.2, help="cohort mode holdout")
     ap.add_argument("--epochs", type=int, default=150)
     ap.add_argument("--lr", type=float, default=1e-3)
+    ap.add_argument(
+        "--lr-schedule",
+        choices=("cosine", "warm-restarts", "none"),
+        default="warm-restarts",
+        help=(
+            "warm-restarts: sawtooth with geometrically growing cycles, lr snaps "
+            "back to --lr at the end of each cycle (default). cosine: one decay "
+            "over the whole run (bigger --epochs stretches it, it does not "
+            "repeat). none: constant lr."
+        ),
+    )
+    ap.add_argument(
+        "--lr-t0",
+        type=int,
+        default=5,
+        help="warm-restarts: epochs in the first cycle (default 5)",
+    )
+    ap.add_argument(
+        "--lr-t-mult",
+        type=int,
+        default=2,
+        help=(
+            "warm-restarts: cycle-length multiplier, so cycles run "
+            "t0, t0*t_mult, t0*t_mult**2, ... (2 = 5,10,20,40; 1 = constant)"
+        ),
+    )
     ap.add_argument("--weight-decay", type=float, default=1e-4)
     ap.add_argument("--hidden-dim", type=int, default=128)
     ap.add_argument("--latent-dim", type=int, default=64)
@@ -596,6 +622,9 @@ def main(argv: list[str] | None = None) -> int:
         common = {
             "epochs": args.epochs,
             "lr": args.lr,
+            "lr_schedule": args.lr_schedule,
+            "lr_t0": args.lr_t0,
+            "lr_t_mult": args.lr_t_mult,
             "weight_decay": args.weight_decay,
             "val_interval": args.val_interval,
             "grad_clip": args.grad_clip,

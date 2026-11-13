@@ -20,7 +20,11 @@ python -m src.data.make_split
 ```
 
 ```
-WANDB_API_KEY="[REDACTED-WANDB-KEY]" python -m scripts.run_training --anchor-end 2026-10-18 --anchor-stride 14
+python -m scripts.run_training --anchor-end 2026-10-18 --anchor-stride 14
+```
+
+```
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python -m scripts.run_training --epochs 1000
 ```
 
 ```
