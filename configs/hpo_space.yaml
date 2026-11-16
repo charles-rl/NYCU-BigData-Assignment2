@@ -2,8 +2,8 @@
 #
 # Fill in `space`. Everything under `fixed` is passed verbatim to every trial,
 # so every trial is scored on the SAME objective. Nothing here is read by
-# scripts/run_training.py -- this file is consumed by the (not yet written)
-# scripts/hpo.py, which shells out one run_training.py process per trial.
+# scripts/run_training.py -- this file is consumed by scripts/hpo.py, which
+# shells out one run_training.py process per trial.
 #
 # ---------------------------------------------------------------------------
 # VALUE SYNTAX for entries under `space`
@@ -21,7 +21,7 @@
 # Bare-list inference (what you get if you just write a list):
 #   * any string present           -> categorical
 #   * all ints                     -> categorical
-#   * all floats, hi/lo >= 10      -> log-uniform  (e.g. lr [0.001, 1.0e-6])
+#   * all floats, hi/lo >= 10      -> log-uniform  (e.g. lr [3.0e-3, 1e-5])
 #   * all floats, hi/lo <  10      -> uniform      (e.g. dropout [0.0, 0.5])
 # Use the explicit log:/linear: prefixes when inference guesses wrong.
 #
@@ -34,34 +34,103 @@
 #   latent_dim % num_heads == 0
 #     torch_geometric HGTConv raises:
 #     "'out_channels' (got N) must be divisible by the number of heads"
+#   With latent_dim {32,64,128,256} and num_heads {2,4,8} every pair is legal,
+#   so the constraint is currently belt-and-braces -- keep it if you edit the
+#   lists. hpo.py enforces it by filtering the `dependent` key's choices.
 #
 # ---------------------------------------------------------------------------
 # COST (measured, this machine: RTX PRO 6000 Blackwell, 128 logical cores)
-#   run-20261112_085910-m1b81uc5 : 150 epochs  -> 1652 s  (11.01 s/epoch)
-#   run-20261112_093155-sp4iwemo : 1000 epochs -> 10754 s (10.75 s/epoch)
+#   Wall-clock is still valid evidence (it is a timing, not a score) even
+#   though the run dirs that produced it are gone:
+#     150 epochs  -> 1652 s  (11.01 s/epoch)
+#     1000 epochs -> 10754 s (10.75 s/epoch)
+#   all four pre-HPO run dirs in .wandb-runs/ have been DELETED (two OOM'd with
+#   no score; two were leaked, see the epoch-budget comment under `fixed`) --
+#   their SCORES must never be resurrected, their timing numbers are fine.
 #   both: n_anchors=8, n_train_rows=40403, 778,726 parameters
-#   => 310 epochs ~= 56 min + ~2-3 min startup ~= 58-60 min per trial
-#   Cost is linear in epochs and ~linear in n_anchors, so a later val_cutoff
-#   (more anchors) costs more. Changing val_cutoff changes the objective.
+#   => 310 epochs ~= 56 min + ~2-3 min table load ~= 58-60 min per trial
+#   Cost is linear in epochs and ~linear in n_anchors. A later val_cutoff means
+#   more anchors (2026-03-14 has 12 vs 8) and costs ~50% more per trial.
+#
+# GPU MEMORY (measured peak RSS, single trial, 8 anchors) -- THIS CAPS n_jobs
+#   hidden 64  / latent 32  / head 32  / heads 2 / 1 layer :  8.4 GiB
+#   hidden 128 / latent 64  / head 64  / heads 4 / 2 layers: 22.1 GiB <- base
+#   hidden 256 / latent 64  / head 64  / heads 4 / 2 layers: 23.8 GiB
+#   hidden 256 / latent 256 / head 128 / heads 8 / 2 layers: 41.1 GiB  <- worst
+#   (the same 256/256/8 config with 3 layers needs 93.4 GiB -- it OOMs alone,
+#    which is why num_gnn_layers is capped at 2 here)
+#   The card is 95 GiB and another user holds ~24 GiB, so ~70 GiB is usable:
+#   2 concurrent is safe (2 x 41 = 82 is the rare worst pair), 3 is not.
+#   Concurrency barely helps anyway: 10 epochs solo = 117 s, two at once = 178 s
+#   each, i.e. only ~1.3x aggregate speedup. The GPU is compute-saturated.
 # ---------------------------------------------------------------------------
 
 study:
   name: hgt-hpo
-  sampler: tpe                 # tpe | botorch | random
-  direction: maximize          # maximize val/score_cmaes
+  sampler: tpe                 # tpe | random
+  direction: maximize          # maximize best_val_score
   seed: 42
-  n_trials: 60                 # plan: 8h@6 workers ~= 43, 12h@6 ~= 65
-  n_jobs: 6                    # parallel worker processes
+  n_trials: 60                 # 60 trials / 2 concurrent x ~65 min ~= 32 h
+  n_jobs: 2                    # capped by GPU memory, not by CPU (see COST)
   storage: sqlite:///hpo/study.db   # shared across workers; resumable
-  max_failures: 3              # skip a trial that crashes (OOM, NaN divergence)
+  # OOM is expected occasionally with 2 lanes; a systemic break still trips
+  # this long before the whole budget is burned.
+  max_failures: 20
+
+  # Known-good configuration from the logged W&B runs, enqueued as trial 0 so
+  # the search has a real baseline to beat instead of starting from noise.
+  # Only used when the study is first created; ignored on resume.
+  # NOTE: "known-good" means "the config the pre-HPO runs used", NOT "known to
+  # score well" -- those runs were leaked (see the epoch-budget comment under
+  # `fixed`). It scored 65.44% as trial 0 under the clean protocol.
+  enqueue:
+    - hidden_dim: 128
+      latent_dim: 64
+      head_hidden_dim: 64
+      num_heads: 4
+      num_gnn_layers: 2
+      dropout: 0.2
+      lr: 0.001
+      weight_decay: 0.0001
 
 # ===========================================================================
-# FIXED across every trial. Changing anything here changes the objective and
-# makes trials incomparable. Keep these at your best known run's values.
+# FIXED across every trial. Changing anything here changes the objective (or
+# the lr trajectory) and makes trials incomparable.
 # ===========================================================================
 fixed:
-  epochs: 310                  # your measured optimum; fix for comparability
+  # ---- lr schedule: COSINE, as in every logged run -----------------------
+  # NOTE: cosine has NO settable T_max. `scheduler_t_max` is derived from
+  # --epochs (_scheduler_config, src/models/train.py:139-141) and
+  # CosineAnnealingLR(T_max=epochs, eta_min=max(1e-5, lr*0.01)) is built at
+  # src/models/train.py:168. There is no --lr-t-max flag, so "epochs" and
+  # "cycle length" are the SAME knob: --epochs 310 means the cosine decays
+  # from lr to eta_min over exactly 310 epochs.
+  lr_schedule: cosine
+  # lr_t0 / lr_t_mult exist as flags but are IGNORED by cosine (they only
+  # feed CosineAnnealingWarmRestarts). Deliberately not set.
+
+  # ---- epoch budget ------------------------------------------------------
+  # `epochs` and the cosine cycle length are the SAME knob (see above).
+  #
+  # !! CONTAMINATED EVIDENCE -- DO NOT REUSE !!
+  # This block used to justify 310 with run-20261112_093155-sp4iwemo
+  # ("best val epoch 245 -> 66.03%, plateau to 1000"). That run, and every
+  # other pre-HPO run in .wandb-runs/, was LEAKED: CMA-ES was allowed to fit
+  # the six per-activity thresholds on VALIDATION data, so its 65.5-66.0%
+  # scores are meaningless. The run dirs have been deleted. Never cite those
+  # numbers as a baseline or as proof that 310 is optimal.
+  #
+  # What IS safe: every one of the 60 Optuna trials in hpo/hgt-hpo/trials.csv
+  # ran at epochs=310, so 310 is the only budget with clean comparative
+  # support. Treat it as "the budget the search was performed at", not an
+  # optimum. The independent, score-free argument for not going lower: with
+  # epochs=310 the compressed cosine reaches eta_min (1e-5) exactly at epoch
+  # 310, i.e. the schedule completes a full decay. To revisit, re-score
+  # 150/310/450 under ONE fixed protocol instead of trusting a curve.
+  epochs: 310
   val_interval: 5
+
+  # ---- data split: defines the objective ---------------------------------
   val_cutoff: "2026-02-15"     # docs/VALIDATION_DATA.md primary safe week
   days: 7
   val_mode: temporal
@@ -70,46 +139,59 @@ fixed:
   anchor_stride: 7
   max_anchors: 0
   pos_weights: doc             # [7.28, 18.08, 11.05, 12.83, 19.29, 1.32]
-  cma_sigma0: 0.15             # inner threshold optimizer, not a model HP
+
+  # ---- inner threshold optimiser: not a model HP -------------------------
+  cma_sigma0: 0.15
   cma_popsize: 16
   cma_maxfevals: 3000
-  seed: 42                     # fixed => deterministic objective per trial
+
+  # ---- run plumbing ------------------------------------------------------
+  seed: 42                     # fixed => near-deterministic objective
   grad_clip: 1.0
-  wandb_mode: disabled         # offline/disabled: no network, no run dirs
+  wandb_mode: disabled         # no network, no run dirs, no key needed
 
 # ===========================================================================
-# SEARCH SPACE -- edit the lists. Values below are a starter guess, not a
-# recommendation: 8 dims is about the practical ceiling for TPE at ~60 trials.
+# SEARCH SPACE -- edit the lists. 8 dims; ~45 trials is the practical ceiling
+# for TPE at that width (>=10 trials/dim to learn anything).
+# If you must trim: drop weight_decay and head_hidden_dim first (6 dims).
 # ===========================================================================
 space:
   # --- optimisation -------------------------------------------------------
-  lr: [0.001, 1.0e-6]              # log-uniform, 4 orders of magnitude
-  weight_decay: [1.0e-6, 1.0e-2]   # log-uniform
-  lr_schedule: [warm-restarts, cosine, none]   # categorical
-  lr_t0: "int: [3, 10]"            # only read when lr_schedule is warm-restarts
-  lr_t_mult: "cat: [1, 2]"         # 2 => cycles 5,10,20,40,80,160
+  # UPPER = 3e-3: 3x above the validated 1e-3 incumbent (both logged runs).
+  #   An incumbent sitting ON a boundary means the search can only ever
+  #   confirm it, never beat it, so the space must extend past it.
+  # LOWER = 1e-5, NOT 1e-6. eta_min = max(1e-5, lr*0.01)
+  #   (src/models/train.py:114-116), so for lr <= 1e-5 the floor is ABOVE the
+  #   base lr and CosineAnnealingLR anneals UPWARD. At 1e-6 the schedule goes
+  #   1e-6 -> 5.5e-6 -> 1e-5, i.e. it is not a low-lr trial at all, it is a
+  #   different (rising) schedule. Measured on this repo:
+  #     lr 1e-3  -> 1e-3 down to 1.003e-05   full cosine decay
+  #     lr 1e-4  -> 1e-4 down to 1.000e-05   full cosine decay
+  #     lr 3e-5  -> 3e-5 down to 1.000e-05   mild decay (33% drop)
+  #     lr 1e-5  -> flat at 1e-5             constant
+  #   Starting at 1e-6 would have put ~20 of 60 trials in a rising regime and
+  #   confounded "low lr" with "no annealing".
+  lr: [3.0e-3, 1.0e-5]             # log-uniform, ratio 300
+  weight_decay: [1.0e-6, 1.0e-2]   # log-uniform; incumbent 1e-4 is interior
 
-  # --- architecture -------------------------------------------------------
+  # --- architecture (injected into GitHubHeteroHGT) -----------------------
   hidden_dim: [64, 128, 256]           # NodeMLPEncoder width
   latent_dim: [32, 64, 128, 256]       # HGT message-passing width
   head_hidden_dim: [32, 64, 128]       # PredictionHead width
   num_heads: [2, 4, 8]                 # must divide latent_dim
-  num_gnn_layers: "int: [1, 3]"        # 1 = no message passing past encoders
+  num_gnn_layers: "int: [1, 2]"        # 1 = no message passing past encoders
   dropout: [0.0, 0.5]                  # uniform
 
   # --- deliberately NOT searched (leave commented out) --------------------
+  # epochs / lr_schedule -> pinned in `fixed` above
   # grad_clip: [0.5, 5.0]        # uncomment to search; low = tight trust region
   # cma_sigma0: [0.05, 0.30]     # nested HP of the threshold optimiser; skip
   # cma_popsize: "cat: [8, 16, 32]"
   # cma_maxfevals: "cat: [1000, 3000, 6000]"
 
-# Sampler-side constraint, enforced by resampling in the hpo driver.
+# Sampler-side constraints. `dependent` is the key whose choices get filtered
+# so the rule holds; the rule is re-checked afterwards as an assert.
 constraints:
   - name: heads_divide_latent
     rule: latent_dim % num_heads == 0
-    action: resample
-
-# Knobs that follow from a choice instead of being sampled independently.
-conditionals:
-  lr_t0: {when: {lr_schedule: warm-restarts}, else: 5}
-  lr_t_mult: {when: {lr_schedule: warm-restarts}, else: 2}
+    dependent: num_heads

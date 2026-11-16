@@ -161,13 +161,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "t0, t0*t_mult, t0*t_mult**2, ... (2 = 5,10,20,40; 1 = constant)"
         ),
     )
-    ap.add_argument("--weight-decay", type=float, default=1e-4)
-    ap.add_argument("--hidden-dim", type=int, default=128)
-    ap.add_argument("--latent-dim", type=int, default=64)
-    ap.add_argument("--head-hidden-dim", type=int, default=64)
+    ap.add_argument("--weight-decay", type=float, default=3e-5)
+    ap.add_argument("--hidden-dim", type=int, default=256)
+    ap.add_argument("--latent-dim", type=int, default=128)
+    ap.add_argument("--head-hidden-dim", type=int, default=128)
     ap.add_argument("--num-heads", type=int, default=4)
-    ap.add_argument("--num-gnn-layers", type=int, default=2)
-    ap.add_argument("--dropout", type=float, default=0.2)
+    ap.add_argument("--num-gnn-layers", type=int, default=1)
+    ap.add_argument("--dropout", type=float, default=0.4)
     ap.add_argument("--val-interval", type=int, default=5)
     ap.add_argument("--grad-clip", type=float, default=1.0, help="max grad norm")
     ap.add_argument("--cma-maxfevals", type=int, default=3000)
@@ -184,6 +184,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="'doc' (measured constants), 'auto' (from train prevalence), or 6 comma floats",
     )
     ap.add_argument("--checkpoint", default=None, help="path for the best model state")
+    ap.add_argument(
+        "--val-pred-path",
+        default=None,
+        help=(
+            "where to write the validation predictions CSV "
+            "(default: splits/val_best_pred_<val-cutoff>.csv). Set this when "
+            "several runs share a val cutoff, e.g. parallel HPO trials."
+        ),
+    )
     ap.add_argument("--dry-run", action="store_true", help="build splits only, no training")
     return ap.parse_args(argv)
 
@@ -636,7 +645,8 @@ def main(argv: list[str] | None = None) -> int:
             "device": args.device,
             "wandb_mode": args.wandb_mode,
             "truth_path": str(truth_path),
-            "val_pred_path": f"splits/val_best_pred_{val_cutoff.date()}.csv",
+            "val_pred_path": args.val_pred_path
+            or f"splits/val_best_pred_{val_cutoff.date()}.csv",
             "save_model_path": checkpoint,
             "extra_config": {
                 "val_mode": args.val_mode,

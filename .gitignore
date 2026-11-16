@@ -26,3 +26,7 @@ wandb/
 # training artifacts
 checkpoints/
 .wandb-runs/
+
+# HPO study state: Optuna SQLite journal, per-trial logs and checkpoints.
+# Regenerable, so not worth committing.
+hpo/
