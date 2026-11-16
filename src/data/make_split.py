@@ -1,8 +1,12 @@
 """Build the temporal split and report the leakage checks.
 
 Run from the repo root:
-    python -m src.data.make_split
-    python -m src.data.make_split --cutoff 2026-10-24 --days 7
+    python -m src.data.make_split --cutoff 2026-02-08 --days 7
+    python -m src.data.make_split --cutoff 2026-10-17 --days 7   # last allowed
+
+The cutoff must stay strictly before `CUTOFF_CEILING` (2026-10-24 00:00 UTC),
+so the bare `python -m src.data.make_split` default -- "last day of data minus
+7 days", i.e. 2026-10-24 -- is refused on purpose by `assert_before_test_week`.
 
 Writes (gitignored):
     splits/features/*.parquet        feature view, only data before the cutoff
@@ -18,7 +22,7 @@ from __future__ import annotations
 import argparse
 from collections import namedtuple
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pandas as pd
 
@@ -31,6 +35,60 @@ from src.data.temporal_split import (
     extract_labels,
     mask_future_leakage,
 )
+
+# Operational test-week guard. README §4 fixes the graded week at
+# 2026-11-22 00:00 - 2026-11-29 00:00 Taiwan time, i.e. 2026-11-21 16:00 UTC ..
+# 2026-11-28 16:00 UTC (see docs/VALIDATION_DATA.md §8). The ceiling below sits
+# deliberately four weeks earlier, on the first day of the corpus's final
+# (damaged) week, so no cutoff that builds a split can come near the graded
+# window; docs/VALIDATION_DATA.md §11 already treats 2026-10-22 .. 10-31 as
+# unusable labels.
+CUTOFF_CEILING = pd.Timestamp("2026-10-24 00:00:00")
+
+
+def assert_before_test_week(
+    cutoff: pd.Timestamp, *, days: int | None = None, context: str = "cutoff"
+) -> None:
+    """Refuse a training/validation cutoff that reaches the test-week guard.
+
+    ``cutoff`` must be strictly before :data:`CUTOFF_CEILING`. When ``days`` is
+    given, the label window ``[cutoff, cutoff + days)`` must also end at or
+    before the ceiling -- a cutoff three days earlier would otherwise read its
+    labels from the guarded week.
+
+    This is an operational guard, not a correctness check: ``build_split`` stays
+    a pure function so the leakage tests can exercise arbitrary timestamps.
+    """
+    latest = (
+        None
+        if days is None
+        else cast(pd.Timestamp, CUTOFF_CEILING - pd.Timedelta(days=days))
+    )
+    window_end = (
+        None if days is None else cast(pd.Timestamp, cutoff + pd.Timedelta(days=days))
+    )
+    hint = f" (latest allowed cutoff: {latest})" if latest is not None else ""
+    if cutoff >= CUTOFF_CEILING:
+        raise SystemExit(
+            f"{context} {cutoff} is at/after the test-week guard "
+            f"{CUTOFF_CEILING}; refusing to build a split that could leak the "
+            f"graded window{hint}"
+        )
+    if latest is not None and window_end is not None and cutoff > latest:
+        raise SystemExit(
+            f"{context} {cutoff} plus {days}d of labels reaches {window_end}, "
+            f"past the test-week guard {CUTOFF_CEILING}; labels would be read "
+            f"from the graded window{hint}"
+        )
+
+
+def _count_truthy(values: Any) -> int:
+    """``values.sum()`` as a plain int.
+
+    ``pandas-stubs`` types ``Series.sum`` as a union that includes ``Series``,
+    which ``int()`` rejects; this keeps the call sites readable.
+    """
+    return int(values.sum())
 
 
 class Split(namedtuple("Split", "cutoff end features labels cohort")):
@@ -89,7 +147,7 @@ def leakage_failures(tables: dict[str, pd.DataFrame], split: Split) -> list[str]
     # 1. No row in the feature view may be stamped at or after the cutoff.
     for name, col in ROW_TIME.items():
         if name in split.features and col in split.features[name].columns:
-            n = int((split.features[name][col] >= split.cutoff).sum())
+            n = _count_truthy(split.features[name][col] >= split.cutoff)
             if n:
                 failures.append(f"{name}.{col}: {n} rows at/after the cutoff")
 
@@ -97,7 +155,7 @@ def leakage_failures(tables: dict[str, pd.DataFrame], split: Split) -> list[str]
     for name, cols in FUTURE_COLS.items():
         for col in cols:
             if name in split.features and col in split.features[name].columns:
-                n = int((split.features[name][col] >= split.cutoff).sum())
+                n = _count_truthy(split.features[name][col] >= split.cutoff)
                 if n:
                     failures.append(f"{name}.{col}: {n} values at/after the cutoff")
 
@@ -137,8 +195,8 @@ def hidden_counts(tables: dict[str, pd.DataFrame], split: Split) -> dict[str, in
         for col in cols:
             if name not in tables or col not in tables[name].columns:
                 continue
-            raw = int((tables[name][col] >= split.cutoff).sum())
-            kept = int((split.features[name][col] >= split.cutoff).sum())
+            raw = _count_truthy(tables[name][col] >= split.cutoff)
+            kept = _count_truthy(split.features[name][col] >= split.cutoff)
             counts[f"{name}.{col}"] = raw - kept
     return counts
 
@@ -161,7 +219,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="build the temporal split and check leakage")
     ap.add_argument("--db", default=DEFAULT_DB, help=f"parquet folder (default: {DEFAULT_DB})")
     ap.add_argument("--cutoff", default=None,
-                    help="feature cutoff, naive UTC (default: last day of data - 7 days)")
+                    help="feature cutoff, naive UTC, strictly before 2026-10-24 "
+                         "(default: last day of data - 7 days, which is refused)")
     ap.add_argument("--days", type=int, default=7, help="label window length after the cutoff")
     ap.add_argument("--out", default="splits", help="output folder (gitignored)")
     args = ap.parse_args(argv)
@@ -177,6 +236,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.cutoff
         else cast(pd.Timestamp, latest.normalize() - pd.Timedelta(days=args.days))
     )
+    # Operational guard: never build a split whose features or labels could
+    # reach the guarded week, whatever value --cutoff was given.
+    assert_before_test_week(cutoff, days=args.days, context="--cutoff")
 
     split = build_split(tables, cutoff, args.days)
 
@@ -196,8 +258,8 @@ def main(argv: list[str] | None = None) -> int:
     naive = extract_labels(split.features, split.cutoff, split.end, split.cohort)
     print(f"\nlabels for {len(split.labels)} cohort users (positives):")
     for col in LABEL_COLS:
-        print(f"  {col:<18} {int(split.labels[col].sum()):>5}"
-              f"   (from masked tables it would be {int(naive[col].sum())})")
+        print(f"  {col:<18} {_count_truthy(split.labels[col]):>5}"
+              f"   (from masked tables it would be {_count_truthy(naive[col])})")
 
     print("\nleakage check (values the mask had to hide):")
     for key, count in hidden_counts(tables, split).items():

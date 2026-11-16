@@ -1,0 +1,11 @@
+# Generated ablation artifacts. The code is tracked; runs are not.
+__pycache__/
+wandb/
+outputs/
+smoke/
+logs/
+logs_dry_run/
+ablation_summary.csv
+ablation_summary.md
+ablation_summary_dry_run.csv
+ablation_summary_dry_run.md

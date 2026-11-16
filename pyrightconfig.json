@@ -3,6 +3,6 @@
   "venvPath": "/home/mses101137/miniconda3/envs",
   "venv": "bda_asg2",
   "pythonVersion": "3.11",
-  "include": ["src", "scripts", "tests"],
+  "include": ["src", "scripts", "tests", "experiments"],
   "exclude": ["**/node_modules", "**/__pycache__", ".git", "raw_data", "processed_tables", "splits", "temporal_output", "explore_output"]
 }

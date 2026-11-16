@@ -48,7 +48,11 @@ import torch
 from torch_geometric.data import HeteroData
 
 from src.data.label_coverage import load_day_flags, observed_activities
-from src.data.make_split import build_split, leakage_failures
+from src.data.make_split import (
+    assert_before_test_week,
+    build_split,
+    leakage_failures,
+)
 from src.data.split_io import DEFAULT_DB, load_tables, parse_cutoff
 from src.data.temporal_split import LABEL_COLS
 from src.features.build_graph import build_hetero_graph
@@ -482,6 +486,15 @@ def main(argv: list[str] | None = None) -> int:
         label = f"train cutoff {train_cutoff.date()}"
     print(f"HGT training | {label} | val cutoff {val_cutoff.date()}")
     print("=" * 78)
+
+    # Operational guard, before any table is loaded: no validation cutoff and no
+    # train anchor may reach the test-week guard, so a mistyped date can never
+    # produce a split that touches the graded window.
+    assert_before_test_week(val_cutoff, days=args.days, context="--val-cutoff")
+    for cutoff in cutoffs:
+        assert_before_test_week(
+            cutoff, days=args.days, context="train cutoff"
+        )
 
     if cutoffs and max(cutoffs) >= val_cutoff:
         print("  [WARN] some training anchors are at/after the validation cutoff.")

@@ -24,13 +24,15 @@ Run from the repository root:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from src.data.make_split import (
+    CUTOFF_CEILING,
+    assert_before_test_week,
     build_split,
     cohort_users,
     data_window,
@@ -56,6 +58,21 @@ END = cast(pd.Timestamp, CUTOFF + pd.Timedelta(days=7))
 def _t(days: float) -> pd.Timestamp:
     """Timestamp `days` after the cutoff (negative = before)."""
     return cast(pd.Timestamp, CUTOFF + pd.Timedelta(days=days))
+
+
+def _n_true(mask: Any) -> int:
+    """Number of truthy entries as a plain int (pandas-stubs types sum loosely)."""
+    return int(np.asarray(mask).sum())
+
+
+def _share(mask: Any) -> float:
+    """Fraction of truthy entries as a plain float."""
+    return float(np.asarray(mask).mean())
+
+
+def _before_ceiling(days: float) -> pd.Timestamp:
+    """A timestamp `days` before the test-week guard ceiling."""
+    return cast(pd.Timestamp, CUTOFF_CEILING - pd.Timedelta(days=days))
 
 
 def make_tables() -> dict[str, pd.DataFrame]:
@@ -239,7 +256,7 @@ def test_feature_view_has_no_row_at_or_after_cutoff(
     features: dict[str, pd.DataFrame], table: str
 ) -> None:
     col = ROW_TIME[table]
-    assert int((features[table][col] >= CUTOFF).sum()) == 0
+    assert _n_true(features[table][col] >= CUTOFF) == 0
 
 
 def test_feature_view_drops_rows_at_the_boundary(features: dict[str, pd.DataFrame]) -> None:
@@ -247,7 +264,7 @@ def test_feature_view_drops_rows_at_the_boundary(features: dict[str, pd.DataFram
     modified = make_tables()
     modified["Pushes"].loc[0, "created_at"] = CUTOFF
     masked = mask_future_leakage(modified, CUTOFF)
-    assert int((masked["Pushes"]["created_at"] == CUTOFF).sum()) == 0
+    assert _n_true(masked["Pushes"]["created_at"] == CUTOFF) == 0
     assert len(masked["Pushes"]) == 0
 
 
@@ -279,7 +296,7 @@ def test_future_values_are_blanked(features: dict[str, pd.DataFrame]) -> None:
 def test_no_future_value_survives_any_future_column(features: dict[str, pd.DataFrame]) -> None:
     for table, cols in FUTURE_COLS.items():
         for col in cols:
-            assert int((features[table][col] >= CUTOFF).sum()) == 0
+            assert _n_true(features[table][col] >= CUTOFF) == 0
 
 
 def test_mask_does_not_mutate_the_input(tables: dict[str, pd.DataFrame]) -> None:
@@ -348,14 +365,14 @@ def test_labels_ignore_nat_timestamps(tables: dict[str, pd.DataFrame]) -> None:
     modified = {name: df.copy() for name, df in tables.items()}
     modified["Pushes"]["created_at"] = [pd.NaT, pd.NaT, pd.NaT]
     labeled = extract_labels(modified, CUTOFF, END, modified["Users"])
-    assert int(labeled["push"].sum()) == 0
+    assert _n_true(labeled["push"]) == 0
 
 
 def test_labels_ignore_rows_without_a_user() -> None:
     modified = make_tables()
     modified["Pushes"]["user_id"] = [np.nan, np.nan, np.nan]
     labeled = extract_labels(modified, CUTOFF, END, modified["Users"])
-    assert int(labeled["push"].sum()) == 0
+    assert _n_true(labeled["push"]) == 0
 
 
 def test_labels_survive_a_missing_table(tables: dict[str, pd.DataFrame]) -> None:
@@ -370,7 +387,7 @@ def test_labels_from_the_masked_view_are_all_zero(
 ) -> None:
     # this is the trap: the label window is empty once the rows are masked
     naive = extract_labels(features, CUTOFF, END, tables["Users"])
-    assert int(naive[LABEL_COLS].sum().sum()) == 0
+    assert _n_true(naive[LABEL_COLS]) == 0
 
 
 # ----------------------------------------------------------------- build_split
@@ -527,6 +544,26 @@ def test_main_reports_a_missing_database(tmp_path: Path) -> None:
     assert main(["--db", str(tmp_path / "absent"), "--out", str(tmp_path / "s")]) == 1
 
 
+# ------------------------------------------------------ test-week guard
+
+def test_assert_before_test_week_rejects_the_guarded_window() -> None:
+    # the last allowed cutoff still has room for its 7-day label window
+    assert_before_test_week(_before_ceiling(7), days=7)
+    with pytest.raises(SystemExit, match="test-week guard"):
+        assert_before_test_week(_before_ceiling(0), days=7)
+    # a cutoff 3 days earlier would read its labels from the guarded week
+    with pytest.raises(SystemExit, match="labels would be read"):
+        assert_before_test_week(_before_ceiling(3), days=7)
+
+
+def test_main_refuses_a_cutoff_inside_the_guarded_window(tmp_path: Path) -> None:
+    _write_synthetic_db(tmp_path)
+    out = tmp_path / "splits"
+    with pytest.raises(SystemExit, match="test-week guard"):
+        main(["--db", str(tmp_path / "db"), "--cutoff", "2026-10-24", "--out", str(out)])
+    assert not (out / "answer.csv").exists()
+
+
 def test_parse_cutoff_rejects_aware_timestamps() -> None:
     assert parse_cutoff("2026-10-24") == CUTOFF.replace(year=2026, month=10, day=24)
     with pytest.raises(ValueError, match="tz-naive"):
@@ -599,12 +636,12 @@ def test_real_data_split_is_clean() -> None:
 
     # feature view is strictly before the cutoff
     for table, col in ROW_TIME.items():
-        assert int((split.features[table][col] >= real_cutoff).sum()) == 0
+        assert _n_true(split.features[table][col] >= real_cutoff) == 0
 
     # labels come from the raw tables and are not degenerate
-    assert int(split.labels[LABEL_COLS].sum().sum()) > 0
+    assert _n_true(split.labels[LABEL_COLS]) > 0
     for col in LABEL_COLS:
-        assert int(split.labels[col].sum()) > 0, col
+        assert _n_true(split.labels[col]) > 0, col
 
     # cohort users only
     assert split.labels["user_id"].is_unique
@@ -618,11 +655,11 @@ def test_real_data_structural_columns_are_covered() -> None:
 
     # the six features are the ones with enough non-null data to be viable
     coverage = {
-        "Issues.body": features["Issues"]["body"].notna().mean(),
-        "Issues.title": features["Issues"]["title"].notna().mean(),
-        "PullRequests.head_ref": features["PullRequests"]["head_ref"].notna().mean(),
-        "PRReviewComments.diff_hunk": features["PRReviewComments"]["diff_hunk"].notna().mean(),
-        "PRReviewComments.path": features["PRReviewComments"]["path"].notna().mean(),
+        "Issues.body": _share(features["Issues"]["body"].notna()),
+        "Issues.title": _share(features["Issues"]["title"].notna()),
+        "PullRequests.head_ref": _share(features["PullRequests"]["head_ref"].notna()),
+        "PRReviewComments.diff_hunk": _share(features["PRReviewComments"]["diff_hunk"].notna()),
+        "PRReviewComments.path": _share(features["PRReviewComments"]["path"].notna()),
     }
     for column, ratio in coverage.items():
         assert ratio >= 0.95, f"{column} coverage {ratio:.3f} is too low"

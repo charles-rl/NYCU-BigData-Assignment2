@@ -1,0 +1,4 @@
+# Generated baseline artifacts. The code is tracked; runs are not.
+__pycache__/
+wandb/
+outputs/
