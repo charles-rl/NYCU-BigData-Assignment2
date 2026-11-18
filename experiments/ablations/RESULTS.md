@@ -7,9 +7,14 @@ label week, 8 training anchors (2025-12-22 … 2026-02-08), 6,736 test users.
 Scores are the assignment metric (mean per-activity F1 over the six activities):
 
 - **`@0.5`** — every activity thresholded at 0.5.
-- **`@CMA-ES`** — per-activity thresholds chosen by CMA-ES on the same
-  validation week (`src/utils/threshold_optimizer.py`). This is the number the
-  suite reports as `score_cmaes` and the one used for ranking below.
+- **`@CMA-ES`** — per-activity thresholds fitted by CMA-ES (`src/utils/
+  threshold_optimizer.py`) on **training-anchor rows only** (8 anchors, fully
+  observed rows, ~40.4k rows), then applied unchanged to the validation week.
+  The optimizer never sees a validation label or probability
+  (`train_engine._fit_thresholds_on_train`), so this is a held-out number, not
+  a tuned-on-validation one. This is the value the suite reports as
+  `score_cmaes` and the one used for ranking below. Both arms in this directory
+  use the same protocol; the LightGBM baseline fits theta the same way.
 
 ## Where these numbers were produced
 
