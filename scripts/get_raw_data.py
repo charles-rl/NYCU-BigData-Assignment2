@@ -1,5 +1,6 @@
 import os
 import time
+import urllib.error
 from datetime import datetime, timedelta
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -9,13 +10,21 @@ OUTPUT_DIR = "raw_data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Define your exact start and end dates
-# Dec 1, 2025 to October 31, 2026. 
+# Dec 1, 2025 to March 21, 2026.
+# Truncated from the documented full corpus (Oct 31, 2026) because this box only
+# has ~150 GB free on /train-data-5-hdd: 2025-12-01 .. 2026-10-31 is 8,042 hourly
+# files at a measured ~35.7 MB each, i.e. ~221 GB beyond what is already here.
+# 2026-03-21 is the last date that buys anything: docs/VALIDATION_DATA.md §1 makes
+# 2026-02-15 the approved validation cutoff (second choice 2026-03-08) and 2026-03-14
+# the latest cutoff with a fully usable 7-day window for all six activities, so its
+# label window ends 2026-03-21. Past that no 7-day validation window exists, so the
+# remaining months would only add training anchors.
 # activity types appear at plausible density (~18k PullRequestEvents/hour, vs
-# ~1.3k in Sep 2026 and ~110 in Aug 2026), so it doubles as the reference month
+# ~1.3k in Sep 2026 and ~110 in Aug 2026), so Dec 2025 doubles as the reference month
 # for scripts/verify_raw_data.py.
 # November 1 until now is excluded because it seems there was data corruption during that time
 START_DATE = datetime(2025, 12, 1).date()
-END_DATE   = datetime(2026, 10, 31).date()
+END_DATE   = datetime(2026, 3, 21).date()
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"

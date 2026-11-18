@@ -248,3 +248,41 @@ above.
 - **pandas 3 / numpy 2**: the code is written for this stack (float32 features,
   `pd.Timestamp` naive UTC throughout). Do not "downgrade for safety" — the
   test suite encodes the pandas-3 behaviours (copy-on-write, `sum` dtypes).
+
+## 10. The 4×3090 box, as actually measured (2026-11-18)
+
+Everything above was written as *assumptions* before the new box was online.
+These are readings taken on it, and they are the environment every number in
+`experiments/ablations/RESULTS.md` was produced on:
+
+```text
+GPUs        4× NVIDIA GeForce RTX 3090, 24,576 MiB each, sm_86 (Ampere), no NVLink
+driver      580.178.04            -> R580 branch, so the pinned cu128 wheels are correct (§3)
+CPU / RAM   48 threads, 2× Intel Xeon E5-2650 v4 @ 2.20 GHz / 251 GiB
+OS          Ubuntu, kernel 7.0.0-42-generic, glibc 2.43
+conda env   bda_asg2  (python 3.11.18)
+            torch 2.11.0+cu128, arch list [sm_75 sm_80 sm_86 sm_90 sm_100 sm_120]
+            torch-geometric 2.8.1, numpy 2.4.6, pandas 3.1.1, scikit-learn 1.9.1,
+            lightgbm 4.7.0 (CPU-only wheel), cma 4.5.0, optuna 5.0.0, wandb 0.31.0
+data        raw_data 2025-12-01 .. 2026-03-21 (2,664 hourly files, 93 GB) — the full
+            2025-12-01 .. 2026-10-31 corpus (~221 GB) does not fit on this box
+```
+
+Corrections to §5/§6 now that it is measured, not assumed:
+
+- `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is **mandatory**, not a
+  tuning knob. Without it a 1-layer training cell peaks at 24,107 MiB and the
+  2-layer `HGTConv` arm dies on a *free* card with `Tried to allocate 1.05 GiB
+  ... 1.26 GiB is reserved by PyTorch but unallocated`. With it, the same cells
+  peak at 17.7 GiB and 24.1 GiB respectively.
+- Two training processes on one card do **not** OOM — the second one stalls for
+  ~55 minutes before its first epoch and has to be killed. "One process per
+  GPU" (§6) is therefore enforced by patience, not by an error message.
+- Measured cell cost at 310 epochs: **11.7 s/epoch** for a 1-layer arm (8 train
+  anchors, 4.03 M graph edges, 2.2 M validation edges) → ~68 min/cell; ~20.2
+  s/epoch for a 2-layer arm with gradient checkpointing → ~112 min/cell; 3.8 min
+  for a LightGBM cell on CPU. Makespan for the 18 GNN cells: 7.1 h on 3 GPUs,
+  6.05 h on 4 (the 4th GPU saves ~15%, not 33%).
+- The **2-layer arm needs both** `--grad-checkpoint` and
+  `--keep-val-graph-on-host` to fit at all. They are numerically neutral, but
+  record them next to any 24 GiB-box number.
