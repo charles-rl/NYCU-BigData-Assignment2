@@ -1,8 +1,8 @@
 {
-  "//": "Point the type checker at the project conda env, not conda base. base deliberately has no wandb/cma: they were installed there by mistake and removed.",
-  "venvPath": "/train-data-5-hdd/charles/miniconda3/envs",
+  "//": "MACHINE-LOCAL (docs/ENVIRONMENT.md section 7): venvPath must name this box's conda root. It currently points at the 1x-RTX-PRO-6000 box; on the 4x3090 box set it to /train-data-5-hdd/charles/miniconda3/envs. Everything else here is machine-agnostic.",
+  "venvPath": "/home/mses101137/miniconda3/envs",
   "venv": "bda_asg2",
   "pythonVersion": "3.11",
   "include": ["src", "scripts", "tests", "experiments"],
-  "exclude": ["**/node_modules", "**/__pycache__", ".git", "raw_data", "processed_tables", "splits", "temporal_output", "explore_output"]
+  "exclude": ["**/node_modules", "**/__pycache__", ".git", "raw_data", "processed_tables", "splits", "temporal_output", "explore_output", "**/wandb", "**/.wandb-runs", "**/smoke", "**/checkpoints", "hpo"]
 }

@@ -48,8 +48,13 @@ __all__ = [
 
 # Ablation W&B runs are kept out of the base ``logs/`` directory on purpose:
 # the experiment must be strictly separable from the production pipeline.
+# W&B's local run directory.  Deliberately dot-prefixed: a plain ``wandb/``
+# directory next to this file shadows the installed package for every module in
+# ``experiments.ablations`` (pyright resolves ``import wandb`` to the empty
+# namespace dir, and running the script by path puts that dir on ``sys.path[0]``,
+# so ``wandb.init`` would raise AttributeError once the dir exists).
 WANDB_DIR = os.environ.get(
-    "ABLATION_WANDB_DIR", str(Path(__file__).resolve().parent / "wandb")
+    "ABLATION_WANDB_DIR", str(Path(__file__).resolve().parent / ".wandb-runs")
 )
 Path(WANDB_DIR).mkdir(parents=True, exist_ok=True)
 
