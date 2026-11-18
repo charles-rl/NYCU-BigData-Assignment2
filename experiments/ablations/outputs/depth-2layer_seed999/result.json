@@ -1,0 +1,90 @@
+{
+  "ablation": {
+    "decay_max_days": 30.0,
+    "mask_text": false,
+    "residual_fusion": true,
+    "temporal_edge_decay": true,
+    "text_mode": null
+  },
+  "command": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/train_gnn_depth.py --seed 999 --output-dir /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs --results-json /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/depth-2layer_seed999/result.json --epochs 310 --lr-schedule warm-restarts --num-threads 8 --num_layers 2 --grad-checkpoint --keep-val-graph-on-host",
+  "depth_study": true,
+  "device": "cuda",
+  "dry_run": false,
+  "duration_seconds": 6754.55,
+  "epochs": 310,
+  "git_revision": "5e46c58",
+  "gnn_layers": 2,
+  "grad_checkpoint": true,
+  "macro_f1": 0.633538591833693,
+  "macro_f1_default_0_5": 0.5542898571518193,
+  "micro_f1": 0.6837487653245018,
+  "micro_f1_default_0_5": 0.5998723675813656,
+  "n_parameters": 3048166,
+  "n_train_anchors": 8,
+  "node_feature_dims": {
+    "IssueComments": 2,
+    "Issues": 6,
+    "PRReviewComments": 3,
+    "PRReviews": 3,
+    "PullRequests": 4,
+    "Pushes": 1,
+    "Repositories": 2,
+    "Users": 21
+  },
+  "per_activity_f1_cmaes": {
+    "issue_comment": 0.6424352567014994,
+    "open_issue": 0.47797716150081565,
+    "open_pr": 0.608357628765792,
+    "pr_review": 0.6666666666666666,
+    "pr_review_comment": 0.6231493943472409,
+    "push": 0.7826454430201437
+  },
+  "per_activity_f1_default_0_5": {
+    "issue_comment": 0.5327156919513607,
+    "open_issue": 0.37489539748953976,
+    "open_pr": 0.5648928485432217,
+    "pr_review": 0.5745200698080279,
+    "pr_review_comment": 0.49491525423728816,
+    "push": 0.7837998808814771
+  },
+  "result_json": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/depth-2layer_seed999/result.json",
+  "run_dir": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/depth-2layer_seed999",
+  "score_cmaes": 0.6586436785790974,
+  "score_default_0_5": 0.5770811123665924,
+  "seed": 999,
+  "status": "ok",
+  "thresholds": [
+    0.7636962917521437,
+    0.865472392647203,
+    0.8314436636574047,
+    0.8358036091112876,
+    0.8607482232431714,
+    0.3883989844790645
+  ],
+  "timestamp_utc": "2026-11-17T18:24:50.013223+00:00",
+  "train_anchors": [
+    "2025-12-22",
+    "2025-12-29",
+    "2026-01-05",
+    "2026-01-12",
+    "2026-01-19",
+    "2026-01-26",
+    "2026-02-02",
+    "2026-02-08"
+  ],
+  "val_cutoff": "2026-02-15",
+  "val_graph_on_host": true,
+  "val_rows": 5873,
+  "variant": "depth-2layer",
+  "variant_tag": "depth-2layer",
+  "wandb_group": "github-activity-depth-study",
+  "wandb_mode": "online",
+  "wandb_run_name": "abl-depth-2layer-s999",
+  "wandb_tags": [
+    "depth-2layer",
+    "seed-999",
+    "ablation",
+    "depth-study",
+    "2-layer"
+  ]
+}

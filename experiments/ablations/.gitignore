@@ -1,11 +1,26 @@
-# Generated ablation artifacts. The code is tracked; runs are not.
+# Generated ablation artifacts.
+#
+# Tracked  : the unified summary, the per-cell result.json (metrics, thresholds,
+#            command line, git revision) and the per-cell stdout logs — together
+#            under 0.6 MB, and the only record of which machine produced a number.
+# Ignored  : everything heavy and re-creatable by re-running a cell: model
+#            weights (~9 MB each), cached validation arrays, W&B caches, dry-run
+#            smoke cells.
+
 __pycache__/
 wandb/
-outputs/
 smoke/
-logs/
 logs_dry_run/
-ablation_summary.csv
-ablation_summary.md
+
+# outputs/** blocks the tree without blocking the directory itself, so the
+# negations below can still reach individual files.
+outputs/**
+!outputs/**/
+!outputs/**/result.json
+
+logs/**
+!logs/**/*.log
+
+# dry-run summaries are plumbing checks, not results
 ablation_summary_dry_run.csv
 ablation_summary_dry_run.md

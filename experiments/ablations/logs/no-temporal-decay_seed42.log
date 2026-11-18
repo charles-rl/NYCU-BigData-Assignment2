@@ -1,0 +1,205 @@
+$ /train-data-5-hdd/charles/miniconda3/envs/bda_asg2/bin/python -m experiments.ablations.train_no_temporal_decay --seed 42 --output-dir /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs --results-json /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/no-temporal-decay_seed42/result.json --epochs 310 --lr-schedule warm-restarts
+
+wandb: [wandb.login()] Loaded credentials for https://api.forge.coreweave.com from /home/charles/.netrc.
+wandb: Currently logged in as: charlessosmena0 (charlessosmena0-academia-sinica) to https://api.forge.coreweave.com. Use `wandb login --relogin` to force relogin
+wandb: setting up run 8gjyanrz
+wandb: Tracking run with wandb version 0.31.0
+wandb: Run data is saved locally in /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/wandb/wandb/run-20261117_044210-8gjyanrz
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run abl-no-temporal-decay-s42
+wandb: ⭐️ View project at https://forge.coreweave.com/wandb/charlessosmena0-academia-sinica/nycu-bigdata-asg2
+wandb: 🚀 View run at https://forge.coreweave.com/wandb/charlessosmena0-academia-sinica/nycu-bigdata-asg2/runs/8gjyanrz
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/train_no_temporal_decay.py", line 30, in <module>
+    sys.exit(main(variant="no-temporal-decay"))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/run_training_ablation.py", line 1182, in main
+    model, thresholds, metrics = train_model_multi_anchor(
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/train_engine.py", line 714, in train_model_multi_anchor
+    logits = model(graph)[row_mask]
+             ^^^^^^^^^^^^
+  File "/train-data-5-hdd/charles/miniconda3/envs/bda_asg2/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/train-data-5-hdd/charles/miniconda3/envs/bda_asg2/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/hetero_model_ablation.py", line 278, in forward
+    out_dict = conv_typed(x_dict, data.edge_index_dict, edge_weight_dict)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/train-data-5-hdd/charles/miniconda3/envs/bda_asg2/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/train-data-5-hdd/charles/miniconda3/envs/bda_asg2/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/hetero_model_ablation.py", line 128, in forward
+    k, v, src_offset = self._construct_src_node_feat(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/train-data-5-hdd/charles/miniconda3/envs/bda_asg2/lib/python3.11/site-packages/torch_geometric/nn/conv/hgt_conv.py", line 148, in _construct_src_node_feat
+    vs = torch.cat(vs, dim=0).transpose(0, 1).reshape(-1, D)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 482.00 MiB. GPU 0 has a total capacity of 23.56 GiB of which 341.69 MiB is free. Process 777228 has 17.25 GiB memory in use. Including non-PyTorch memory, this process has 5.96 GiB memory in use. Of the allocated memory 5.64 GiB is allocated by PyTorch, and 21.11 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mabl-no-temporal-decay-s42[0m at: [34mhttps://forge.coreweave.com/wandb/charlessosmena0-academia-sinica/nycu-bigdata-asg2/runs/8gjyanrz[0m
+[1;34mwandb[0m: Find logs at: [1;35mexperiments/ablations/wandb/wandb/run-20261117_044210-8gjyanrz/logs[0m
+==============================================================================
+ABLATION no-temporal-decay | seed 42 | epochs 310 | device cuda | dry_run=False
+  Set every temporal edge weight to 1.0 (no exponential decay).
+  text masked=False (mode=zero) | temporal decay=False | residual fusion=True | gnn layers=1
+  W&B group=github-activity-ablations | tags=['no-temporal-decay', 'seed-42', 'ablation'] | mode=online
+==============================================================================
+  run directory: /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/no-temporal-decay_seed42
+  result JSON:   /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/no-temporal-decay_seed42/result.json
+==============================================================================
+ABLATION no-temporal-decay | 8 anchors | val cutoff 2026-02-15
+==============================================================================
+  [warn] raw_data/coverage_activity.csv missing; skipping usability check
+  [val] 7-day label window fully usable for all 6 activities
+
+Loading tables from processed_tables/db
+  [warn] no raw_data/coverage_activity.csv; trusting every label cell
+  [val] cutoff 2026-02-15 | label window 2026-02-15 .. 2026-02-22 | leakage check: OK
+  [val] nodes 23,454 users, 5,873 cohort rows, 695,586 total
+  [val] positives open_pr=1,330 (22.6%)  open_issue=544 (9.3%)  issue_comment=1,026 (17.5%)  pr_review=880 (15.0%)  pr_review_comment=626 (10.7%)  push=3,127 (53.2%)
+  [val] built in 28.2s
+  [ablation] temporal edge decay: OFF all weights = 1.0
+    open_pr            edges   217,316  mean w 1.000  min 1.000  max 1.000
+    open_issue         edges   163,525  mean w 1.000  min 1.000  max 1.000
+    issue_comment      edges    86,082  mean w 1.000  min 1.000  max 1.000
+    pr_review          edges    78,787  mean w 1.000  min 1.000  max 1.000
+    pr_review_comment  edges    57,340  mean w 1.000  min 1.000  max 1.000
+    push               edges   725,436  mean w 1.000  min 1.000  max 1.000
+  [ablation] text features: PRESENT  branch_depth=56127  log_issue_len=368643  has_markdown_structure=39874  has_prefix=10112  log_diff_len=188246  path_depth=99379
+  [train 2025-12-22] cutoff 2025-12-22 | label window 2025-12-22 .. 2025-12-29 | leakage check: OK
+  [train 2025-12-22] nodes 10,851 users, 4,320 cohort rows, 197,318 total
+  [train 2025-12-22] positives open_pr=853 (19.7%)  open_issue=359 (8.3%)  issue_comment=742 (17.2%)  pr_review=585 (13.5%)  pr_review_comment=373 (8.6%)  push=2,174 (50.3%)
+  [train 2025-12-22] built in 13.1s
+  [train 2025-12-29] cutoff 2025-12-29 | label window 2025-12-29 .. 2026-01-05 | leakage check: OK
+  [train 2025-12-29] nodes 12,221 users, 4,588 cohort rows, 248,324 total
+  [train 2025-12-29] positives open_pr=882 (19.2%)  open_issue=368 (8.0%)  issue_comment=724 (15.8%)  pr_review=561 (12.2%)  pr_review_comment=378 (8.2%)  push=2,189 (47.7%)
+  [train 2025-12-29] built in 14.8s
+  [train 2026-01-05] cutoff 2026-01-05 | label window 2026-01-05 .. 2026-01-12 | leakage check: OK
+  [train 2026-01-05] nodes 13,547 users, 4,765 cohort rows, 299,059 total
+  [train 2026-01-05] positives open_pr=1,171 (24.6%)  open_issue=537 (11.3%)  issue_comment=1,019 (21.4%)  pr_review=891 (18.7%)  pr_review_comment=639 (13.4%)  push=2,683 (56.3%)
+  [train 2026-01-05] built in 16.5s
+  [train 2026-01-12] cutoff 2026-01-12 | label window 2026-01-12 .. 2026-01-19 | leakage check: OK
+  [train 2026-01-12] nodes 15,446 users, 4,986 cohort rows, 363,361 total
+  [train 2026-01-12] positives open_pr=1,185 (23.8%)  open_issue=548 (11.0%)  issue_comment=1,019 (20.4%)  pr_review=924 (18.5%)  pr_review_comment=679 (13.6%)  push=2,813 (56.4%)
+  [train 2026-01-12] built in 18.6s
+  [train 2026-01-19] cutoff 2026-01-19 | label window 2026-01-19 .. 2026-01-26 | leakage check: OK
+  [train 2026-01-19] nodes 17,136 users, 5,170 Epoch 040/310 | anchors 8 | loss train 0.9976 / val 0.9616 | score train 55.82% / val 53.23% @0.5 -> 64.26% @tuned (macro 61.46%, micro 67.07%)
+Epoch 045/310 | anchors 8 | loss train 0.9872 / val 0.9579 | score train 56.23% / val 53.74% @0.5 -> 64.30% @tuned (macro 61.44%, micro 67.17%)
+Epoch 050/310 | anchors 8 | loss train 0.9806 / val 0.9566 | score train 55.93% / val 53.42% @0.5 -> 64.41% @tuned (macro 61.63%, micro 67.18%)
+Epoch 055/310 | anchors 8 | loss train 0.9756 / val 0.9496 | score train 56.63% / val 54.28% @0.5 -> 64.57% @tuned (macro 61.89%, micro 67.26%)
+Epoch 060/310 | anchors 8 | loss train 0.9730 / val 0.9467 | score train 56.74% / val 54.52% @0.5 -> 64.68% @tuned (macro 61.95%, micro 67.42%)
+Epoch 065/310 | anchors 8 | loss train 0.9711 / val 0.9439 | score train 56.70% / val 54.63% @0.5 -> 64.79% @tuned (macro 62.11%, micro 67.47%)
+Epoch 070/310 | anchors 8 | loss train 0.9709 / val 0.9441 | score train 56.59% / val 54.62% @0.5 -> 64.79% @tuned (macro 62.11%, micro 67.47%)
+Epoch 075/310 | anchors 8 | loss train 0.9703 / val 0.9441 | score train 56.59% / val 54.61% @0.5 -> 64.79% @tuned (macro 62.12%, micro 67.46%)
+Epoch 080/310 | anchors 8 | loss train 0.9666 / val 0.9415 | score train 56.65% / val 54.63% @0.5 -> 64.90% @tuned (macro 62.20%, micro 67.60%)
+Epoch 085/310 | anchors 8 | loss train 0.9633 / val 0.9393 | score train 56.49% / val 55.03% @0.5 -> 64.82% @tuned (macro 62.10%, micro 67.54%)
+Epoch 090/310 | anchors 8 | loss train 0.9603 / val 0.9355 | score train 56.41% / val 55.54% @0.5 -> 65.07% @tuned (macro 62.31%, micro 67.82%)
+Epoch 095/310 | anchors 8 | loss train 0.9569 / val 0.9368 | score train 56.72% / val 55.16% @0.5 -> 64.91% @tuned (macro 62.18%, micro 67.64%)
+Epoch 100/310 | anchors 8 | loss train 0.9543 / val 0.9348 | score train 56.64% / val 55.46% @0.5 -> 65.09% @tuned (macro 62.36%, micro 67.81%)
+Epoch 105/310 | anchors 8 | loss train 0.9519 / val 0.9337 | score train 56.78% / val 55.71% @0.5 -> 65.24% @tuned (macro 62.48%, micro 68.00%)
+Epoch 110/310 | anchors 8 | loss train 0.9513 / val 0.9339 | score train 56.92% / val 55.75% @0.5 -> 65.09% @tuned (macro 62.35%, micro 67.84%)
+Epoch 115/310 | anchors 8 | loss train 0.9493 / val 0.9334 | score train 56.84% / val 55.86% @0.5 -> 65.20% @tuned (macro 62.42%, micro 67.98%)
+Epoch 120/310 | anchors 8 | loss train 0.9479 / val 0.9334 | score train 56.95% / val 56.02% @0.5 -> 65.26% @tuned (macro 62.51%, micro 68.01%)
+Epoch 125/310 | anchors 8 | loss train 0.9466 / val 0.9330 | score train 56.92% / val 56.02% @0.5 -> 65.21% @tuned (macro 62.46%, micro 67.96%)
+Epoch 130/310 | anchors 8 | loss train 0.9457 / val 0.9322 | score train 57.05% / val 56.10% @0.5 -> 65.15% @tuned (macro 62.45%, micro 67.86%)
+Epoch 135/310 | anchors 8 | loss train 0.9460 / val 0.9324 | score train 56.96% / val 56.13% @0.5 -> 65.18% @tuned (macro 62.46%, micro 67.91%)
+Epoch 140/310 | anchors 8 | loss train 0.9446 / val 0.9323 | score train 56.99% / val 56.22% @0.5 -> 65.27% @tuned (macro 62.49%, micro 68.05%)
+Epoch 145/310 | anchors 8 | loss train 0.9448 / val 0.9324 | score train 56.95% / val 56.18% @0.5 -> 65.19% @tuned (macro 62.41%, micro 67.97%)
+Epoch 150/310 | anchors 8 | loss train 0.9448 / val 0.9322 | score train 57.00% / val 56.24% @0.5 -> 65.27% @tuned (macro 62.50%, micro 68.04%)
+Epoch 155/310 | anchors 8 | loss train 0.9439 / val 0.9322 | score train 57.01% / val 56.23% @0.5 -> 65.17% @tuned (macro 62.47%, micro 67.87%)
+Epoch 160/310 | anchors 8 | loss train 0.9588 / val 0.9352 | score train 55.11% / val 56.58% @0.5 -> 65.31% @tuned (macro 62.66%, micro 67.97%)
+Epoch 165/310 | anchors 8 | loss train 0.9461 / val 0.9323 | score train 58.00% / val 56.54% @0.5 -> 65.17% @tuned (macro 62.46%, micro 67.88%)
+Epoch 170/310 | anchors 8 | loss train 0.9417 / val 0.9331 | score train 57.15% / val 55.98% @0.5 -> 65.12% @tuned (macro 62.35%, micro 67.88%)
+Epoch 175/310 | anchors 8 | loss train 0.9390 / val 0.9318 | score train 57.21% / val 56.89% @0.5 -> 65.24% @tuned (macro 62.39%, micro 68.10%)
+Epoch 180/310 | anchors 8 | loss train 0.9378 / val 0.9325 | score train 57.42% / val 56.30% @0.5 -> 65.36% @tuned (macro 62.73%, micro 67.98%)
+Epoch 185/310 | anchors 8 | loss train 0.9366 / val 0.9315 | score train 56.99% / val 56.72% @0.5 -> 65.26% @tuned (macro 62.50%, micro 68.02%)
+Epoch 190/310 | anchors 8 | loss train 0.9348 / val 0.9332 | score train 57.70% / val 56.63% @0.5 -> 65.38% @tuned (macro 62.64%, micro 68.13%)
+Epoch 195/310 | anchors 8 | loss train 0.9311 / val 0.9319 | score train 57.18% / val 56.57% @0.5 -> 65.44% @tuned (macro 62.70%, micro 68.18%)
+Epoch 200/310 | anchors 8 | loss train 0.9305 / val 0.9325 | score train 57.51% / val 56.82% @0.5 -> 65.61% @tuned (macro 62.96%, micro 68.26%)
+Epoch 205/310 | anchors 8 | loss train 0.9284 / val 0.9331 | score train 57.47% / val 56.61% @0.5 -> 65.48% @tuned (macro 62.78%, micro 68.18%)
+Epoch 210/310 | anchors 8 | loss train 0.9252 / val 0.9330 | score train 57.51% / val 57.02% @0.5 -> 65.66% @tuned (macro 62.95%, micro 68.36%)
+Epoch 215/310 | anchors 8 | loss train 0.9246 / val 0.9327 | score train 57.70% / val 56.88% @0.5 -> 65.60% @tuned (macro 62.87%, micro 68.33%)
+Epoch 220/310 | anchors 8 | loss train 0.9234 / val 0.9337 | score train 57.72% / val 57.04% @0.5 -> 65.69% @tuned (macro 63.02%, micro 68.36%)
+Epoch 225/310 | anchors 8 | loss train 0.9214 / val 0.9337 | score train 57.84% / val 57.18% @0.5 -> 65.64% @tuned (macro 62.96%, micro 68.31%)
+Epoch 230/310 | anchors 8 | loss train 0.9201 / val 0.9336 | score train 57.77% / val 57.10% @0.5 -> 65.73% @tuned (macro 63.08%, micro 68.38%)
+Epoch 235/310 | anchors 8 | loss train 0.9191 / val 0.9339 | score train 57.73% / val 57.03% @0.5 -> 65.72% @tuned (macro 63.05%, micro 68.40%)
+Epoch 240/310 | anchors 8 | loss train 0.9177 / val 0.9333 | score train 57.80% / val 57.29% @0.5 -> 65.77% @tuned (macro 63.11%, micro 68.43%)
+Epoch 245/310 | anchors 8 | loss train 0.9165 / val 0.9340 | score train 57.98% / val 57.09% @0.5 -> 65.69% @tuned (macro 62.96%, micro 68.42%)
+Epoch 250/310 | anchors 8 | loss train 0.9163 / val 0.9335 | score train 57.98% / val 57.13% @0.5 -> 65.69% @tuned (macro 63.00%, micro 68.39%)
+Epoch 255/310 | anchors 8 | loss train 0.9169 / val 0.9349 | score train 57.86% / val 57.02% @0.5 -> 65.78% @tuned (macro 63.08%, micro 68.47%)
+Epoch 260/310 | anchors 8 | loss train 0.9141 / val 0.9348 | score train 57.86% / val 57.30% @0.5 -> 65.63% @tuned (macro 62.92%, micro 68.35%)
+Epoch 265/310 | anchors 8 | loss train 0.9138 / val 0.9344 | score train 57.96% / val 57.16% @0.5 -> 65.58% @tuned (macro 62.85%, micro 68.30%)
+Epoch 270/310 | anchors 8 | loss train 0.9128 / val 0.9351 | score train 58.00% / val 57.26% @0.5 -> 65.58% @tuned (macro 62.87%, micro 68.28%)
+Epoch 275/310 | anchors 8 | loss train 0.9120 / val 0.9348 | score train 58.09% / val 57.15% @0.5 -> 65.65% @tuned (macro 62.97%, micro 68.33%)
+Epoch 280/310 | anchors 8 | loss train 0.9112 / val 0.9354 | score train 58.29% / val 57.47% @0.5 -> 65.55% @tuned (macro 62.86%, micro 68.24%)
+Epoch 285/310 | anchors 8 | loss train 0.9110 / val 0.9355 | score train 58.15% / val 57.36% @0.5 -> 65.65% @tuned (macro 62.93%, micro 68.37%)
+Epoch 290/310 | anchors 8 | loss train 0.9116 / val 0.9356 | score train 58.20% / val 57.27% @0.5 -> 65.61% @tuned (macro 62.91%, micro 68.30%)
+Epoch 295/310 | anchors 8 | loss train 0.9104 / val 0.9357 | score train 58.13% / val 57.36% @0.5 -> 65.71% @tuned (macro 63.01%, micro 68.41%)
+Epoch 300/310 | anchors 8 | loss train 0.9102 / val 0.9357 | score train 58.21% / val 57.37% @0.5 -> 65.59% @tuned (macro 62.89%, micro 68.30%)
+Epoch 305/310 | anchors 8 | loss train 0.9112 / val 0.9357 | score train 58.07% / val 57.30% @0.5 -> 65.61% @tuned (macro 62.90%, micro 68.33%)
+Epoch 310/310 | anchors 8 | loss train 0.9097 / val 0.9358 | score train 58.17% / val 57.38% @0.5 -> 65.70% @tuned (macro 63.00%, micro 68.39%)
+Format check: no errors (5873 users)
+  open_pr            F1  60.61%
+  open_issue         F1  47.47%
+  issue_comment      F1  62.69%
+  pr_review          F1  66.83%
+  pr_review_comment  F1  62.43%
+  push               F1  78.46%
+macro-F1: 63.08%
+micro-F1: 68.47%
+Score:    65.78%
+wandb: updating run metadata
+wandb: uploading output.log; uploading config.yaml
+wandb: 
+wandb: Run history:
+wandb:               epoch ▁▁▁▁▂▂▂▂▃▃▃▃▄▄▄▄▄▄▅▅▅▅▅▆▆▆▆▆▆▆▆▆▇▇▇█████
+wandb:       train/anchors ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:     train/grad_norm █▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:          train/loss █▃▂▂▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:            train/lr ▇▇▄▃▂█▇▅▃▃▁▁▁██▇▅▃▂▂▁▁▁█████▇▇▆▆▄▄▃▂▂▁▁▁
+wandb:      train/macro_f1 ▁▂▃▆▆▆▆▅▆▆▆▆▆▆▆▆▆▆▇▆▇▇▇▇▇▇▇▇▇██▇████████
+wandb:      train/micro_f1 ▁▅▇▇▇███████████████████████████████████
+wandb:         train/score ▁▄▆▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇██▇█▇██▇█████████████
+wandb: val/cma_evaluations ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb: val/cma_generations ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                 +19 ...
+wandb: 
+wandb: Run summary:
+wandb:                    best_epoch 255
+wandb:       best_val/macro_f1_cmaes 0.63082
+wandb: best_val/macro_f1_default_0.5 0.54751
+wandb:       best_val/micro_f1_cmaes 0.68474
+wandb: best_val/micro_f1_default_0.5 0.59291
+wandb:          best_val/score_cmaes 0.65778
+wandb:    best_val/score_default_0.5 0.57021
+wandb:                best_val_score 0.65778
+wandb:                         epoch 310
+wandb:                 train/anchors 8
+wandb:                           +27 ...
+wandb: 
+wandb: 🚀 View run abl-no-temporal-decay-s42 at: https://forge.coreweave.com/wandb/charlessosmena0-academia-sinica/nycu-bigdata-asg2/runs/aynyi52n
+wandb: ⭐️ View project at: https://forge.coreweave.com/wandb/charlessosmena0-academia-sinica/nycu-bigdata-asg2
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./experiments/ablations/wandb/wandb/run-20261117_040122-aynyi52n/logs
+Saved best checkpoint to /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/no-temporal-decay_seed42/model.pt
+
+Running official scripts/evaluate.py on /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/no-temporal-decay_seed42/val_pred.csv against /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/no-temporal-decay_seed42/val_truth.csv:
+
+==============================================================================
+ABLATION RESULT | no-temporal-decay | seed 42
+  Macro-F1         63.08%
+  Micro-F1         68.47%
+  Score @0.5       57.02%
+  Score CMA-ES     65.78%
+  Thresholds      [0.79, 0.889, 0.856, 0.872, 0.911, 0.399]
+  Result JSON     /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/no-temporal-decay_seed42/result.json
+  Duration        4083.1s
+==============================================================================

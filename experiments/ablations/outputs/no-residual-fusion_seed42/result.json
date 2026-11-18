@@ -1,0 +1,86 @@
+{
+  "ablation": {
+    "decay_max_days": 30.0,
+    "mask_text": false,
+    "residual_fusion": false,
+    "temporal_edge_decay": true,
+    "text_mode": null
+  },
+  "command": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/train_no_residual_fusion.py --seed 42 --output-dir /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs --results-json /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/no-residual-fusion_seed42/result.json --device cuda --epochs 310 --lr-schedule warm-restarts --num-threads 8",
+  "depth_study": false,
+  "device": "cuda",
+  "dry_run": false,
+  "duration_seconds": 4107.83,
+  "epochs": 310,
+  "git_revision": "5e46c58",
+  "gnn_layers": 1,
+  "macro_f1": 0.6289397261756896,
+  "macro_f1_default_0_5": 0.530743681592716,
+  "micro_f1": 0.6791899362554296,
+  "micro_f1_default_0_5": 0.5753260123541524,
+  "n_parameters": 2288502,
+  "n_train_anchors": 8,
+  "node_feature_dims": {
+    "IssueComments": 2,
+    "Issues": 6,
+    "PRReviewComments": 3,
+    "PRReviews": 3,
+    "PullRequests": 4,
+    "Pushes": 1,
+    "Repositories": 2,
+    "Users": 21
+  },
+  "per_activity_f1_cmaes": {
+    "issue_comment": 0.6142684401451027,
+    "open_issue": 0.48175182481751827,
+    "open_pr": 0.608060933037131,
+    "pr_review": 0.6654309545875811,
+    "pr_review_comment": 0.6203763789746918,
+    "push": 0.7837498254921123
+  },
+  "per_activity_f1_default_0_5": {
+    "issue_comment": 0.5091405184174624,
+    "open_issue": 0.32452830188679244,
+    "open_pr": 0.5485074626865671,
+    "pr_review": 0.5625,
+    "pr_review_comment": 0.45416508178014453,
+    "push": 0.7856207247853296
+  },
+  "result_json": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/no-residual-fusion_seed42/result.json",
+  "run_dir": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/no-residual-fusion_seed42",
+  "score_cmaes": 0.6540648312155596,
+  "score_default_0_5": 0.5530348469734342,
+  "seed": 42,
+  "status": "ok",
+  "thresholds": [
+    0.7783653133265243,
+    0.9061641274824841,
+    0.844242747812721,
+    0.8805022940120586,
+    0.9203950684955148,
+    0.40415518286123053
+  ],
+  "timestamp_utc": "2026-11-16T22:16:14.330624+00:00",
+  "train_anchors": [
+    "2025-12-22",
+    "2025-12-29",
+    "2026-01-05",
+    "2026-01-12",
+    "2026-01-19",
+    "2026-01-26",
+    "2026-02-02",
+    "2026-02-08"
+  ],
+  "val_cutoff": "2026-02-15",
+  "val_rows": 5873,
+  "variant": "no-residual-fusion",
+  "variant_tag": "no-residual-fusion",
+  "wandb_group": "github-activity-ablations",
+  "wandb_mode": "online",
+  "wandb_run_name": "abl-no-residual-fusion-s42",
+  "wandb_tags": [
+    "no-residual-fusion",
+    "seed-42",
+    "ablation"
+  ]
+}
