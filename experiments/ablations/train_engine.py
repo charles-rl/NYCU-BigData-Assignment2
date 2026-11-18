@@ -613,6 +613,7 @@ def train_model_multi_anchor(
     save_model_path: str | None = None,
     shuffle_anchors: bool = True,
     anchor_seed: int = 42,
+    keep_val_graph_on_host: bool = False,
     wandb_group: str | None = None,
     wandb_tags: list[str] | None = None,
 ) -> tuple[GitHubHeteroHGT, np.ndarray, dict[str, object]]:
@@ -627,6 +628,11 @@ def train_model_multi_anchor(
     An activity the coverage audit marked unusable contributes no entries at
     all (see :class:`Anchor`), so a broken `push` day removes push labels from
     that anchor instead of asserting "nobody pushed".
+
+    ``keep_val_graph_on_host`` (default False, so existing runs are untouched)
+    parks the validation graph — the largest single graph in the run — on the
+    host except during a validation pass, so it no longer competes with a train
+    anchor graph for device memory.  Placement only: the numbers are identical.
     """
     if len(pos_weights) != len(ACTIVITY_NAMES):
         raise ValueError(
@@ -671,9 +677,25 @@ def train_model_multi_anchor(
     )
 
     model = model.to(device)
-    val_graph = val_anchor.graph.to(device)
     val_mask = val_anchor.mask.astype(bool)
     val_labels = val_anchor.labels[val_mask]
+
+    # The validation graph is only needed on the device for a validation pass.
+    # HeteroData.to() moves in place and returns the same object, so tracking
+    # where it currently lives keeps the anchor view consistent.
+    val_graph = val_anchor.graph
+    val_graph_on_device = False
+
+    def _place_val_graph(target: str) -> None:
+        nonlocal val_graph, val_graph_on_device
+        want_device = target != "cpu"
+        if val_graph_on_device == want_device:
+            return
+        val_graph = val_graph.to(target)
+        val_graph_on_device = want_device
+
+    if not keep_val_graph_on_host:
+        _place_val_graph(device)
 
     weight_tensor = torch.tensor(pos_weights, dtype=torch.float32, device=device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=weight_tensor)
@@ -764,6 +786,10 @@ def train_model_multi_anchor(
             )
 
         if epoch % val_interval == 0 or epoch == epochs:
+            if keep_val_graph_on_host:
+                # It is parked on the host between validation passes; bring it
+                # back before the validation forward.
+                _place_val_graph(device)
             model.eval()
             with torch.no_grad():
                 val_logits = model(val_graph)
@@ -776,6 +802,12 @@ def train_model_multi_anchor(
             default_metrics = score_in_memory(
                 val_labels, (val_probs_cohort >= 0.5).astype(np.int64)
             )
+
+            # The threshold-fitting pass below moves each train anchor onto the
+            # device in turn, so release the validation graph first.
+            del val_logits
+            if keep_val_graph_on_host:
+                _place_val_graph("cpu")
 
             # Thresholds are fitted on TRAINING rows only, then applied here.
             # The in-loop train probabilities carry dropout noise, so recompute
@@ -854,6 +886,8 @@ def train_model_multi_anchor(
     if best_state_dict is not None:
         model.load_state_dict(best_state_dict)
 
+    # The validation graph may have been parked on the host during training.
+    _place_val_graph(device)
     _report_and_save(
         model=model,
         val_graph=val_graph,

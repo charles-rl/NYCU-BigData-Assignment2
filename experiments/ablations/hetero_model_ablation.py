@@ -14,15 +14,23 @@ untouched.  The copy adds exactly the two switches the ablation suite needs:
    ``no-temporal-decay`` ablation.  Passing unit weights is mathematically
    identical to the stock HGT operator, so the two variants differ only in the
    edge weights, not in parameters or code paths.
+
+3. ``grad_checkpoint`` (default False, so every existing run is untouched).
+   Each HGT block is recomputed during backward, which keeps only the block
+   inputs alive instead of every per-edge activation.  Same math and same
+   dropout masks (non-reentrant checkpointing restores the RNG state), at the
+   cost of ~30% slower epochs; it exists so the 2-layer arm fits a 24 GB card.
 """
 
 from __future__ import annotations
 
+from functools import partial
 from typing import cast
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 from torch_geometric.data import HeteroData
 from torch_geometric.nn import HGTConv
 from torch_geometric.nn.conv.hgt_conv import construct_bipartite_edge_index
@@ -212,6 +220,7 @@ class GitHubHeteroHGT(nn.Module):
         num_gnn_layers: int = 2,
         use_residual_fusion: bool = True,
         use_temporal_decay: bool = True,
+        grad_checkpoint: bool = False,
     ) -> None:
         super().__init__()
 
@@ -220,6 +229,7 @@ class GitHubHeteroHGT(nn.Module):
         self.user_raw_dim = in_dims["Users"]
         self.use_residual_fusion = use_residual_fusion
         self.use_temporal_decay = use_temporal_decay
+        self.grad_checkpoint = bool(grad_checkpoint)
 
         self.encoders = nn.ModuleDict(
             {
@@ -264,6 +274,27 @@ class GitHubHeteroHGT(nn.Module):
             ]
         )
 
+    def _gnn_block(
+        self,
+        x_dict: dict[str, torch.Tensor],
+        edge_index_dict: dict[tuple[str, str, str], torch.Tensor],
+        edge_weight_dict: dict[tuple[str, str, str], torch.Tensor] | None,
+        conv: TemporalHGTConv,
+        layer_norms: nn.ModuleDict,
+    ) -> dict[str, torch.Tensor]:
+        """One HGT block: conv, then residual + LayerNorm, then dropout."""
+        out_dict = conv(x_dict, edge_index_dict, edge_weight_dict)
+        next_dict: dict[str, torch.Tensor] = {}
+        for node_type in x_dict:
+            residual = out_dict[node_type]
+            if residual is None:
+                raise RuntimeError(f"HGT produced no embedding for {node_type}")
+            layer_norm = cast(nn.LayerNorm, layer_norms[node_type])
+            next_dict[node_type] = self.dropout(
+                layer_norm(F.mish(residual) + x_dict[node_type])
+            )
+        return next_dict
+
     def forward(self, data: HeteroData) -> torch.Tensor:
         """Return raw logits of shape ``(num_users, num_classes)``."""
         x_dict: dict[str, torch.Tensor] = {}
@@ -275,17 +306,32 @@ class GitHubHeteroHGT(nn.Module):
 
         for conv, ln_dict in zip(self.gnn_layers, self.layer_norms, strict=True):
             conv_typed = cast(TemporalHGTConv, conv)
-            out_dict = conv_typed(x_dict, data.edge_index_dict, edge_weight_dict)
-            for node_type in x_dict:
-                layer_norms = cast(nn.ModuleDict, ln_dict)
-                layer_norm = cast(nn.LayerNorm, layer_norms[node_type])
-                residual = out_dict[node_type]
-                if residual is None:
-                    raise RuntimeError(f"HGT produced no embedding for {node_type}")
-                x_dict[node_type] = layer_norm(
-                    F.mish(residual) + x_dict[node_type]
+            layer_norms = cast(nn.ModuleDict, ln_dict)
+            if self.grad_checkpoint and torch.is_grad_enabled():
+                # checkpoint() is typed as returning Any, so the projection
+                # back to the embedding dict is spelled out here.
+                x_dict = cast(
+                    "dict[str, torch.Tensor]",
+                    checkpoint(
+                        partial(
+                            self._gnn_block,
+                            conv=conv_typed,
+                            layer_norms=layer_norms,
+                        ),
+                        x_dict,
+                        data.edge_index_dict,
+                        edge_weight_dict,
+                        use_reentrant=False,
+                    ),
                 )
-                x_dict[node_type] = self.dropout(x_dict[node_type])
+            else:
+                x_dict = self._gnn_block(
+                    x_dict,
+                    data.edge_index_dict,
+                    edge_weight_dict,
+                    conv_typed,
+                    layer_norms,
+                )
 
         user_gnn_emb = x_dict["Users"]
 

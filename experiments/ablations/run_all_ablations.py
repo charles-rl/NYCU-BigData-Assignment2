@@ -95,7 +95,18 @@ VARIANT_MODULES = {
 }
 VARIANT_EXTRA_ARGS = {
     "depth-1layer": ["--num_layers", "1"],
-    "depth-2layer": ["--num_layers", "2"],
+    # The 2-layer arm needs ~6 GiB more than the 1-layer arm and does not fit a
+    # 24 GiB card without help: run unassisted it reaches 22.69 GiB allocated and
+    # dies with a CUDA OOM around epoch 16 even when it owns the whole card. Both
+    # flags are numerically neutral - non-reentrant activation checkpointing keeps
+    # the dropout masks and gives bit-identical gradients, and parking the
+    # validation graph on the host is placement-only.
+    "depth-2layer": [
+        "--num_layers",
+        "2",
+        "--grad-checkpoint",
+        "--keep-val-graph-on-host",
+    ],
 }
 VARIANT_GROUPS = {
     "full": ABLATION_GROUP,

@@ -318,6 +318,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="torch CPU threads (0 = PyTorch default); useful on a shared server",
     )
     ap.add_argument(
+        "--grad-checkpoint",
+        action="store_true",
+        help=(
+            "recompute each HGT block in backward (non-reentrant, so dropout "
+            "masks are unchanged) instead of keeping its per-edge activations. "
+            "Costs ~30%% slower epochs and frees several GiB; only the "
+            "depth-2layer arm needs it on a 24 GB card"
+        ),
+    )
+    ap.add_argument(
+        "--keep-val-graph-on-host",
+        action="store_true",
+        help=(
+            "park the validation graph on the host between validation passes so "
+            "it does not compete with a train anchor graph for device memory. "
+            "Placement only - the reported numbers are identical"
+        ),
+    )
+    ap.add_argument(
         "--device",
         default=None,
         help="default: cuda if available, else cpu; --dry-run defaults to cpu",
@@ -763,6 +782,10 @@ def print_banner(
         f"gnn layers={args.num_gnn_layers}"
     )
     print(
+        f"  memory mode: grad_checkpoint={args.grad_checkpoint} | "
+        f"val_graph_on_host={args.keep_val_graph_on_host}"
+    )
+    print(
         f"  W&B group={args.wandb_group} | tags={tags} | "
         f"mode={args.wandb_mode}"
     )
@@ -1090,6 +1113,7 @@ def main(argv: list[str] | None = None, variant: str = "full") -> int:
         # The no-decay arm stores unit weights; keeping the code path enabled
         # means the two arms differ only in the weight tensor, not parameters.
         use_temporal_decay=True,
+        grad_checkpoint=args.grad_checkpoint,
     )
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {n_params:,}")
@@ -1171,6 +1195,8 @@ def main(argv: list[str] | None = None, variant: str = "full") -> int:
                 "head_hidden_dim": args.head_hidden_dim,
                 "num_heads": args.num_heads,
                 "num_gnn_layers": args.num_gnn_layers,
+                "grad_checkpoint": bool(args.grad_checkpoint),
+                "keep_val_graph_on_host": bool(args.keep_val_graph_on_host),
                 "dropout": args.dropout,
                 "seed": args.seed,
                 "git_revision": git_revision(),
@@ -1187,6 +1213,10 @@ def main(argv: list[str] | None = None, variant: str = "full") -> int:
                 pos_weights=pos_weights,
                 shuffle_anchors=not args.no_anchor_shuffle,
                 anchor_seed=args.seed,
+                # Only this trainer keeps the validation graph and a train
+                # anchor graph resident together, so the host-parking switch is
+                # passed here rather than through the shared `common` kwargs.
+                keep_val_graph_on_host=args.keep_val_graph_on_host,
                 **common,
             )
         else:
@@ -1247,6 +1277,8 @@ def main(argv: list[str] | None = None, variant: str = "full") -> int:
         "n_train_anchors": len(train_anchors),
         "n_parameters": int(n_params),
         "gnn_layers": int(args.num_gnn_layers),
+        "grad_checkpoint": bool(args.grad_checkpoint),
+        "val_graph_on_host": bool(args.keep_val_graph_on_host),
         "depth_study": spec.num_layers is not None,
         "node_feature_dims": in_dims,
         "ablation": {
