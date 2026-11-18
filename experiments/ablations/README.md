@@ -16,8 +16,9 @@ experiments/
 │   ├── train_no_text.py               # mask the 6 structural/textual features
 │   ├── train_no_temporal_decay.py     # all edge weights = 1.0
 │   ├── train_no_residual_fusion.py    # heads see only the post-GNN user embedding
+│   ├── train_pos_weights_auto.py      # Experiment C: pos_weight from this run's anchors
 │   ├── train_gnn_depth.py             # Experiment B: --num_layers 1 vs 2
-│   ├── run_all_ablations.py           # 7 variants × 3 seeds = 21 runs; CSV + Markdown
+│   ├── run_all_ablations.py           # 8 variants × 3 seeds = 24 runs; CSV + Markdown
 │   └── audit_parity.py                # hyperparameter-parity audit
 └── baselines/
     ├── train_lightgbm.py              # Experiment A: 6 binary LightGBM models on Users.x
@@ -28,25 +29,29 @@ Generated artifacts are ignored: `ablation_summary.csv`, `ablation_summary.md`,
 `ablation_summary_dry_run.*`, `outputs/`, `smoke/`, `logs/`, `logs_dry_run/`,
 `wandb/`.
 
-## The 21-run grid
+## The 24-run grid
 
-`run_all_ablations.py` runs **7 variants × 3 seeds = 21 runs** when executed
+`run_all_ablations.py` runs **8 variants × 3 seeds = 24 runs** when executed
 without `--dry-run`.
 
-| variant | module | text features | temporal edge decay | raw-user fusion | GNN layers | W&B group |
-|---|---|---|---|---|---|---|
-| `full` | `train_full.py` | present | ON (`exp(-dt/τ)`) | ON | 1 | `github-activity-ablations` |
-| `no-text` | `train_no_text.py` | **masked** | ON | ON | 1 | `github-activity-ablations` |
-| `no-temporal-decay` | `train_no_temporal_decay.py` | present | **OFF (all 1.0)** | ON | 1 | `github-activity-ablations` |
-| `no-residual-fusion` | `train_no_residual_fusion.py` | present | ON | **OFF** | 1 | `github-activity-ablations` |
-| `lightgbm` | `../baselines/train_lightgbm.py` | n/a (tabular only) | n/a | n/a | n/a | `github-activity-baselines` |
-| `depth-1layer` | `train_gnn_depth.py --num_layers 1` | present | ON | ON | **1** | `github-activity-depth-study` |
-| `depth-2layer` | `train_gnn_depth.py --num_layers 2` | present | ON | ON | **2** | `github-activity-depth-study` |
+| variant | module | text features | temporal edge decay | raw-user fusion | pos_weight | GNN layers | W&B group |
+|---|---|---|---|---|---|---|---|
+| `full` | `train_full.py` | present | ON (`exp(-dt/τ)`) | ON | doc constants | 1 | `github-activity-ablations` |
+| `no-text` | `train_no_text.py` | **masked** | ON | ON | doc constants | 1 | `github-activity-ablations` |
+| `no-temporal-decay` | `train_no_temporal_decay.py` | present | **OFF (all 1.0)** | ON | doc constants | 1 | `github-activity-ablations` |
+| `no-residual-fusion` | `train_no_residual_fusion.py` | present | ON | **OFF** | doc constants | 1 | `github-activity-ablations` |
+| `pos-weights-auto` | `train_pos_weights_auto.py` | present | ON | ON | **(N_obs−N_pos)/N_pos** | 1 | `github-activity-ablations` |
+| `lightgbm` | `../baselines/train_lightgbm.py` | n/a (tabular only) | n/a | n/a | doc constants | n/a | `github-activity-baselines` |
+| `depth-1layer` | `train_gnn_depth.py --num_layers 1` | present | ON | ON | doc constants | **1** | `github-activity-depth-study` |
+| `depth-2layer` | `train_gnn_depth.py --num_layers 2` | present | ON | ON | doc constants | **2** | `github-activity-depth-study` |
 
 The four `full`/`no-*` arms change exactly one model factor. The LightGBM arm
 is a separate model family. The depth arms change only the layer count.
 `depth-1layer` is architecture-identical to `full`; it is rerun under the
 depth-study W&B group so the 1-vs-2 comparison has a matched control pair.
+`pos-weights-auto` changes no architecture at all — it is the graph and model of
+`full` with the loss weights measured on the run's own anchors, which isolates
+calibration from every other factor (Experiment C).
 
 ## Hyperparameter parity
 
@@ -69,7 +74,7 @@ Expected result: **PASS**, with:
 * the exact measured positive-class weights
   `[7.28, 18.08, 11.05, 12.83, 19.29, 1.32]` (`--pos-weights doc`);
 * **19/19** LightGBM split/threshold arguments matching the GNN protocol;
-* all seven orchestrator modules and three W&B groups present.
+* all eight orchestrator modules and three W&B groups present.
 
 `device`/`wandb_mode` are intentionally dynamic (dry-run → CPU/offline) and are
 excluded from the parity table. Artifact-path defaults are suite-specific and
@@ -218,7 +223,7 @@ python -m experiments.ablations.train_gnn_depth --dry-run \
     --output-dir experiments/ablations/smoke
 ```
 
-All seven write `experiments/ablations/smoke/<variant>_seed42/result.json` and
+All eight write `experiments/ablations/smoke/<variant>_seed42/result.json` and
 exit `0` on success. The result JSON is the source of truth for the summary.
 
 Aggregate the smoke results without retraining:

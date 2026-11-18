@@ -100,6 +100,11 @@ class VariantSpec:
     wandb_group: str = DEFAULT_GROUP
     num_layers: int | None = None
     extra_tags: tuple[str, ...] = ()
+    # ``None`` means "whatever --pos-weights says" (a plain ``full`` run obeys
+    # the CLI).  An arm that *is* about calibration pins its own mode here, so
+    # the difference from `full` stays inside the driver and cannot be lost by
+    # forgetting a flag on the command line.
+    pos_weights: str | None = None
 
 
 VARIANTS: dict[str, VariantSpec] = {
@@ -134,6 +139,21 @@ VARIANTS: dict[str, VariantSpec] = {
         edge_decay=True,
         residual_fusion=False,
         description="Remove the raw Users.x concatenation from the prediction heads.",
+    ),
+    "pos-weights-auto": VariantSpec(
+        name="pos-weights-auto",
+        tag="pos-weights-auto",
+        mask_text=False,
+        edge_decay=True,
+        residual_fusion=True,
+        description=(
+            "Calibration study: pos_weight = (N_observed - N_pos) / N_pos per "
+            "activity, measured on this run's training anchors, instead of the "
+            "static 252-anchor constants in docs/VALIDATION_DATA.md section 5. "
+            "Same graph, same 21 node features, same architecture."
+        ),
+        pos_weights="auto",
+        extra_tags=("calibration", "pos-weights"),
     ),
     "depth-1layer": VariantSpec(
         name="depth-1layer",
@@ -649,16 +669,85 @@ def anchor_cutoffs(
     return cutoffs
 
 
-def resolve_pos_weights(spec: str, train_positives: np.ndarray, n_rows: int) -> list[float]:
+def resolve_pos_weights(
+    spec: str,
+    train_positives: np.ndarray,
+    n_rows: int,
+    observed_counts: np.ndarray | None = None,
+) -> list[float]:
+    """Turn a ``--pos-weights`` mode into the six BCE positive-class weights.
+
+    ``doc``
+        The static 252-clean-anchor constants from
+        ``docs/VALIDATION_DATA.md`` section 5 (``DOC_POS_WEIGHTS``).  They were
+        fitted on a different, wider panel than any single run trains on.
+    ``auto``
+        ``(N_observed - N_pos) / N_pos`` per activity, computed from the
+        training anchors of *this* run.  The denominator is the number of
+        **observed** cells for that activity, not the row count: a cell the
+        coverage audit marked unobserved never enters the loss, so counting it
+        as a negative would deflate the weight for exactly the activities that
+        lost days.  Mathematically identical to ``(1 - p) / p`` with
+        ``p = N_pos / N_observed``, which is the usual BCE ``pos_weight``.
+    ``<six comma-separated floats>``
+        Explicit override, e.g. ``--pos-weights 7.3,18,11,12.8,19.3,1.3``.
+
+    ``observed_counts`` is optional so older callers (and tests) that only know
+    the row count keep working; it then falls back to ``n_rows`` per activity,
+    which is what the observed count equals when every label cell is observed.
+    """
     if spec == "doc":
         return list(DOC_POS_WEIGHTS)
     if spec == "auto":
-        prevalence = np.clip(train_positives / max(n_rows, 1), 1e-6, 1 - 1e-6)
-        return [float(w) for w in (1.0 - prevalence) / prevalence]
+        positives = np.asarray(train_positives, dtype=np.float64).reshape(-1)
+        if positives.size != len(ACTIVITY_NAMES):
+            raise SystemExit(
+                f"auto pos-weights needs {len(ACTIVITY_NAMES)} per-activity "
+                f"positive counts, got {positives.size}"
+            )
+        if observed_counts is None:
+            denominator = np.full(len(ACTIVITY_NAMES), float(max(n_rows, 1)))
+        else:
+            denominator = np.asarray(observed_counts, dtype=np.float64).reshape(-1)
+            if denominator.size != len(ACTIVITY_NAMES):
+                raise SystemExit(
+                    f"auto pos-weights needs {len(ACTIVITY_NAMES)} per-activity "
+                    f"observed counts, got {denominator.size}"
+                )
+            denominator = np.maximum(denominator, 1.0)
+        # clip keeps a zero-positive activity finite instead of dividing by zero
+        positives = np.clip(positives, 1.0, None)
+        negatives = np.maximum(denominator - positives, 1.0)
+        return [float(w) for w in negatives / positives]
     parts = [p.strip() for p in spec.split(",") if p.strip()]
     if len(parts) != len(ACTIVITY_NAMES):
         raise SystemExit(f"--pos-weights needs {len(ACTIVITY_NAMES)} comma-separated values")
-    return [float(p) for p in parts]
+    try:
+        return [float(p) for p in parts]
+    except ValueError as exc:
+        raise SystemExit(f"--pos-weights values must be numbers: {exc}") from exc
+
+
+def _print_pos_weight_report(
+    mode: str,
+    weights: list[float],
+    positives: np.ndarray,
+    observed: np.ndarray,
+) -> None:
+    """Print the calibration inputs and the weights they produced."""
+    print(f"  pos_weight mode: {mode}")
+    print(
+        "  observed cells:",
+        {a: int(c) for a, c in zip(ACTIVITY_NAMES, observed, strict=True)},
+    )
+    print(
+        "  positives:",
+        {a: int(p) for a, p in zip(ACTIVITY_NAMES, positives, strict=True)},
+    )
+    print(
+        "  pos_weight:",
+        {a: round(w, 2) for a, w in zip(ACTIVITY_NAMES, weights, strict=True)},
+    )
 
 
 def git_revision() -> str:
@@ -1037,6 +1126,7 @@ def main(argv: list[str] | None = None, variant: str = "full") -> int:
         ]
         train_rows = int(tr.sum())
         train_positives = np.asarray(val_ds.labels[tr].sum(axis=0))
+        train_observed = np.asarray(val_ds.observed[tr].sum(axis=0))
         print(
             f"  [cohort] {train_rows:,} train rows / {int(va.sum()):,} val rows "
             "on the same graph (validation shares the week with training)"
@@ -1073,6 +1163,12 @@ def main(argv: list[str] | None = None, variant: str = "full") -> int:
             raise SystemExit("no usable training anchors; lower --anchor-min-observed")
         train_rows = sum(a.n_rows for a in train_anchors)
         train_positives = np.sum([a.positives for a in train_anchors], axis=0)
+        # Per-activity denominator for `--pos-weights auto`: how many label cells
+        # the audit says are actually observable, so a masked cell is not
+        # silently counted as a negative.
+        train_observed = np.sum(
+            [a.observed[a.mask].sum(axis=0) for a in train_anchors], axis=0
+        )
 
     print("\nAnchors:")
     for a in train_anchors:
@@ -1085,10 +1181,22 @@ def main(argv: list[str] | None = None, variant: str = "full") -> int:
     total_graph_mb = sum(a.graph_megabytes for a in train_anchors) + val_ds.graph_megabytes
     print(f"  resident graph memory: {total_graph_mb / 1024:.2f} GB (all anchors kept on CPU)")
 
+    # The arm may pin its own calibration mode (``pos-weights-auto``); otherwise
+    # the CLI flag decides, which is what keeps `full` and the other ablations on
+    # the static doc constants they were measured with.
+    pos_weights_spec = spec.pos_weights or args.pos_weights
     pos_weights = resolve_pos_weights(
-        args.pos_weights, np.asarray(train_positives), int(train_rows)
+        pos_weights_spec,
+        np.asarray(train_positives),
+        int(train_rows),
+        observed_counts=np.asarray(train_observed),
     )
-    print("  pos_weight:", {a: round(w, 2) for a, w in zip(ACTIVITY_NAMES, pos_weights, strict=True)})
+    _print_pos_weight_report(
+        pos_weights_spec,
+        pos_weights,
+        np.asarray(train_positives),
+        np.asarray(train_observed),
+    )
 
     if args.wandb_mode == "online" and not (
         os.environ.get("WANDB_API_KEY") or (Path.home() / ".netrc").exists()
@@ -1287,6 +1395,17 @@ def main(argv: list[str] | None = None, variant: str = "full") -> int:
             "temporal_edge_decay": spec.edge_decay,
             "decay_max_days": args.decay_max_days,
             "residual_fusion": spec.residual_fusion,
+            "pos_weights_mode": pos_weights_spec,
+        },
+        # Calibration provenance: which mode, what it resolved to, and the counts
+        # it was derived from, so a reader can recompute `auto` by hand.
+        "pos_weights_mode": pos_weights_spec,
+        "pos_weights": [float(w) for w in pos_weights],
+        "train_observed_cells": {
+            a: int(c) for a, c in zip(ACTIVITY_NAMES, train_observed, strict=True)
+        },
+        "train_positive_cells": {
+            a: int(p) for a, p in zip(ACTIVITY_NAMES, train_positives, strict=True)
         },
         "wandb_group": args.wandb_group,
         "wandb_tags": tags,
@@ -1308,6 +1427,10 @@ def main(argv: list[str] | None = None, variant: str = "full") -> int:
     print(f"  Score @0.5      {result['score_default_0_5'] * 100:6.2f}%")
     print(f"  Score CMA-ES    {result['score_cmaes'] * 100:6.2f}%")
     print(f"  Thresholds      {[round(float(t), 3) for t in result['thresholds']]}")
+    print(
+        f"  Pos weights     {result['pos_weights_mode']} "
+        f"{[round(float(w), 2) for w in result['pos_weights']]}"
+    )
     print(f"  Result JSON     {results_json}")
     print(f"  Duration        {duration:.1f}s")
     print("=" * 78)

@@ -11,8 +11,9 @@ override is ``--epochs 310`` (the base default is 150); it is reported as
 ``SUITE OVERRIDE`` rather than silently ignored.
 
 It also checks that the LightGBM baseline uses the same temporal split,
-calibration, CMA-ES budget, and project defaults, and that the three W&B groups
-and all seven orchestrator modules exist.
+calibration, CMA-ES budget, and project defaults, that the pos-weight
+calibration arm pins ``pos_weights="auto"`` while every other arm obeys the CLI,
+and that the three W&B groups and all eight orchestrator modules exist.
 
 Exit code 0 = PASS, 1 = mismatch.
 """
@@ -196,18 +197,26 @@ def main() -> int:
         "no-text": (True, True, True),
         "no-temporal-decay": (False, False, True),
         "no-residual-fusion": (False, True, False),
+        # calibration arm: same graph/architecture as `full`; only the loss
+        # weights differ, which is why it pins pos_weights instead of a flag.
+        "pos-weights-auto": (False, True, True),
     }
+    # None means "obey --pos-weights" (every pre-existing arm); the calibration
+    # arm pins its mode so it cannot silently drift back to the doc constants.
+    expected_pos_weights = {"pos-weights-auto": "auto"}
     for name, spec in VARIANTS.items():
         if spec.num_layers is None:
             expected = expected_non_depth.get(name)
             ok = expected == (spec.mask_text, spec.edge_decay, spec.residual_fusion)
             ok &= spec.wandb_group == DEFAULT_GROUP
+            ok &= spec.pos_weights == expected_pos_weights.get(name)
             status = "OK" if ok else "MISMATCH"
             all_ok &= ok
             spec_rows.append(
                 (
                     name,
-                    f"layers=- mask={spec.mask_text} decay={spec.edge_decay} fusion={spec.residual_fusion}",
+                    f"layers=- mask={spec.mask_text} decay={spec.edge_decay} "
+                    f"fusion={spec.residual_fusion} pos_weights={spec.pos_weights}",
                     spec.wandb_group,
                     status,
                 )
@@ -218,6 +227,7 @@ def main() -> int:
                 and spec.edge_decay is True
                 and spec.residual_fusion is True
                 and spec.wandb_group == DEPTH_GROUP
+                and spec.pos_weights is None
             )
             status = "OK" if ok else "MISMATCH"
             all_ok &= ok
@@ -241,7 +251,7 @@ def main() -> int:
     print(f"\n  depth arms (1 vs 2 layers): {'OK' if depth_ok else 'MISMATCH'}")
     all_ok &= depth_ok
 
-    # Orchestrator coverage: seven variants, three distinct W&B groups.
+    # Orchestrator coverage: eight variants, three distinct W&B groups.
     print("\nOrchestrator coverage")
     print(f"  variants ({len(VARIANT_ORDER)}): {', '.join(VARIANT_ORDER)}")
     expected_variants = [
@@ -249,12 +259,13 @@ def main() -> int:
         "no-text",
         "no-temporal-decay",
         "no-residual-fusion",
+        "pos-weights-auto",
         "lightgbm",
         "depth-1layer",
         "depth-2layer",
     ]
     coverage_ok = expected_variants == VARIANT_ORDER
-    print(f"  expected 7-variant order: {'OK' if coverage_ok else 'MISMATCH'}")
+    print(f"  expected 8-variant order: {'OK' if coverage_ok else 'MISMATCH'}")
     all_ok &= coverage_ok
     for module in sorted(set(VARIANT_MODULES.values())):
         exists = importlib.util.find_spec(module) is not None

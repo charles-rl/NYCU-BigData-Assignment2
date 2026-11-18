@@ -3,14 +3,17 @@
 The grid is:
 
     GNN ablations (4):   full, no-text, no-temporal-decay, no-residual-fusion
+    calibration study:   pos-weights-auto
     tabular baseline:    lightgbm
     depth study (2):     depth-1layer, depth-2layer
     seeds:               [42, 123, 999]
-    -> 7 variants x 3 seeds = 21 runs when executed without --dry-run
+    -> 8 variants x 3 seeds = 24 runs when executed without --dry-run
 
 All GNN children share the base hyperparameters (epochs=310, warm-restarts,
 calibrated doc pos_weights); only the named component or the layer count
-differs.  The LightGBM baseline shares the temporal split, calibration, CMA-ES
+differs -- except ``pos-weights-auto``, which keeps the architecture and swaps
+the doc constants for ``(N_observed - N_pos) / N_pos`` measured on the run's own
+anchors.  The LightGBM baseline shares the temporal split, calibration, CMA-ES
 threshold protocol, and metric, but uses tree-specific model hyperparameters.
 
 Each run is an isolated subprocess (``python -m experiments.ablations.train_*``
@@ -36,7 +39,7 @@ Examples
     # 7 smoke runs (one per variant, seed 42), CPU, no full training
     python -m experiments.ablations.run_all_ablations --dry-run --device cpu
 
-    # the real 21-run grid (defaults: epochs 310, warm-restarts)
+    # the real 24-run grid (defaults: epochs 310, warm-restarts)
     python -m experiments.ablations.run_all_ablations --device cuda
 
     # optional HPO-comparable schedule
@@ -80,6 +83,7 @@ VARIANT_ORDER = [
     "no-text",
     "no-temporal-decay",
     "no-residual-fusion",
+    "pos-weights-auto",
     "lightgbm",
     "depth-1layer",
     "depth-2layer",
@@ -89,6 +93,7 @@ VARIANT_MODULES = {
     "no-text": "experiments.ablations.train_no_text",
     "no-temporal-decay": "experiments.ablations.train_no_temporal_decay",
     "no-residual-fusion": "experiments.ablations.train_no_residual_fusion",
+    "pos-weights-auto": "experiments.ablations.train_pos_weights_auto",
     "lightgbm": "experiments.baselines.train_lightgbm",
     "depth-1layer": "experiments.ablations.train_gnn_depth",
     "depth-2layer": "experiments.ablations.train_gnn_depth",
@@ -113,6 +118,7 @@ VARIANT_GROUPS = {
     "no-text": ABLATION_GROUP,
     "no-temporal-decay": ABLATION_GROUP,
     "no-residual-fusion": ABLATION_GROUP,
+    "pos-weights-auto": ABLATION_GROUP,
     "lightgbm": BASELINE_GROUP,
     "depth-1layer": DEPTH_GROUP,
     "depth-2layer": DEPTH_GROUP,
@@ -123,6 +129,7 @@ VARIANT_LABELS = {
     "no-text": "No text features",
     "no-temporal-decay": "No temporal decay",
     "no-residual-fusion": "No residual fusion",
+    "pos-weights-auto": "Auto pos-weights",
     "lightgbm": "LightGBM tabular",
     "depth-1layer": "GNN depth 1",
     "depth-2layer": "GNN depth 2",
@@ -165,8 +172,9 @@ SUMMARY_COLUMNS = [
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description=(
-            "Run 4 GNN ablations + LightGBM baseline + 1-vs-2 layer depth study "
-            "x 3 seeds, then write CSV/Markdown summaries."
+            "Run 4 GNN ablations + a pos-weight calibration arm + LightGBM "
+            "baseline + 1-vs-2 layer depth study x 3 seeds, then write "
+            "CSV/Markdown summaries."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -388,6 +396,44 @@ def load_result(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def _reuse_cell(
+    variant: str,
+    seed: int,
+    result_json: Path,
+    log_path: Path,
+    dry_run: bool,
+) -> dict[str, Any] | None:
+    """Summary row for an existing cell that may be reused, else ``None``.
+
+    A cell is reusable only if it is ``ok`` *and* was produced by the mode being
+    aggregated now: a leftover ``--dry-run`` cell (1 epoch, 1 anchor) must never
+    silently stand in for a full run of the same variant.
+    """
+    data = load_result(result_json)
+    if data is None or data.get("status") != "ok":
+        return None
+    if bool(data.get("dry_run")) != bool(dry_run):
+        print(
+            f"  [skip-existing] {variant} seed {seed}: ignoring {result_json} "
+            f"(dry_run={data.get('dry_run')} != {bool(dry_run)})"
+        )
+        return None
+    print(f"  [skip] {variant} seed {seed}: reusing {result_json}")
+    if not log_path.exists():
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(f"[skip-existing] reused {result_json}\n", encoding="utf-8")
+    return row_from_result(
+        data,
+        variant=variant,
+        seed=seed,
+        status="ok",
+        returncode=0,
+        duration=float(data.get("duration_seconds", 0.0)),
+        result_json=result_json,
+        log_path=log_path,
+    )
+
+
 def run_one(
     variant: str,
     seed: int,
@@ -401,24 +447,9 @@ def run_one(
     log_path = log_dir / f"{variant}_seed{seed}.log"
 
     if args.skip_existing:
-        data = load_result(result_json)
-        if data is not None and data.get("status") == "ok":
-            print(f"  [skip] {variant} seed {seed}: reusing {result_json}")
-            if not log_path.exists():
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                log_path.write_text(
-                    f"[skip-existing] reused {result_json}\n", encoding="utf-8"
-                )
-            return row_from_result(
-                data,
-                variant=variant,
-                seed=seed,
-                status="ok",
-                returncode=0,
-                duration=float(data.get("duration_seconds", 0.0)),
-                result_json=result_json,
-                log_path=log_path,
-            )
+        reused = _reuse_cell(variant, seed, result_json, log_path, args.dry_run)
+        if reused is not None:
+            return reused
 
     cmd = build_command(variant, module, seed, output_dir, result_json, args)
     env = os.environ.copy()
@@ -581,6 +612,89 @@ def dataframe_records(df: pd.DataFrame) -> list[dict[str, Any]]:
     ]
 
 
+def effect_table(
+    aggregates: list[dict[str, Any]], base_variant: str
+) -> tuple[list[str], list[list[str]]] | None:
+    """Per-metric deltas of every arm against one reference arm.
+
+    Returns ``None`` when the reference is absent or has no finite mean, so the
+    caller can skip the section entirely instead of printing a table of dashes.
+    """
+    base = next((row for row in aggregates if row["variant"] == base_variant), None)
+    if base is None or not math.isfinite(float(base["score_cmaes_mean"])):
+        return None
+    headers = ["Variant"] + [
+        f"Δ {METRIC_LABELS[column].replace(' (%)', '')}" for column in METRIC_COLUMNS
+    ]
+    rows: list[list[str]] = []
+    for row in aggregates:
+        deltas: list[str] = []
+        for column in METRIC_COLUMNS:
+            base_value = float(base[f"{column}_mean"])
+            value = float(row[f"{column}_mean"])
+            if not math.isfinite(value) or not math.isfinite(base_value):
+                deltas.append("—")
+            else:
+                deltas.append(f"{(value - base_value) * 100.0:+.2f}")
+        rows.append(
+            [VARIANT_LABELS.get(str(row["variant"]), str(row["variant"])), *deltas]
+        )
+    return headers, rows
+
+
+def calibration_rows(
+    aggregates: list[dict[str, Any]], arm: str
+) -> tuple[list[str], list[list[str]]] | None:
+    """The calibration arm scored against ``full`` and ``lightgbm`` at @0.5 and @CMA-ES."""
+    by_variant = {str(row["variant"]): row for row in aggregates}
+    target = by_variant.get(arm)
+    if target is None or not math.isfinite(float(target["score_cmaes_mean"])):
+        return None
+    # The whole point of the table is the two-sided comparison, so skip it
+    # entirely rather than print a column of dashes when a reference is missing.
+    if "full" not in by_variant or "lightgbm" not in by_variant:
+        return None
+
+    def mean(name: str, column: str) -> float:
+        row = by_variant.get(name)
+        if row is None:
+            return float("nan")
+        return float(row[f"{column}_mean"])
+
+    def pp(value: float, reference: float) -> str:
+        if not math.isfinite(value) or not math.isfinite(reference):
+            return "—"
+        return f"{(value - reference) * 100.0:+.2f}"
+
+    headers = [
+        "Arm",
+        "Score @0.5 (%)",
+        "Score @CMA-ES (%)",
+        "Δ@0.5 vs full",
+        "Δ@CMA vs full",
+        "Δ@0.5 vs lgbm",
+        "Δ@CMA vs lgbm",
+    ]
+    rows: list[list[str]] = []
+    for name in ("full", arm, "lightgbm"):
+        s05 = mean(name, "score_default_0_5")
+        cma = mean(name, "score_cmaes")
+        if name not in by_variant:
+            continue
+        rows.append(
+            [
+                VARIANT_LABELS.get(name, name),
+                fmt_pct(s05),
+                fmt_pct(cma),
+                pp(s05, mean("full", "score_default_0_5")),
+                pp(cma, mean("full", "score_cmaes")),
+                pp(s05, mean("lightgbm", "score_default_0_5")),
+                pp(cma, mean("lightgbm", "score_cmaes")),
+            ]
+        )
+    return headers, rows
+
+
 def render_markdown(
     df: pd.DataFrame,
     meta: dict[str, Any],
@@ -641,27 +755,49 @@ def render_markdown(
 
     full = next((row for row in aggregates if row["variant"] == "full"), None)
     if full is not None and math.isfinite(float(full["score_cmaes_mean"])):
-        lines.extend(["", "## Effect vs Full Model", ""])
-        effect_headers = ["Variant"] + [
-            f"Δ {METRIC_LABELS[c].replace(' (%)', '')}" for c in METRIC_COLUMNS
-        ]
-        effect_rows: list[list[str]] = []
-        for row in aggregates:
-            deltas: list[str] = []
-            for column in METRIC_COLUMNS:
-                base = float(full[f"{column}_mean"])
-                value = float(row[f"{column}_mean"])
-                if not math.isfinite(value) or not math.isfinite(base):
-                    deltas.append("—")
-                else:
-                    delta = (value - base) * 100.0
-                    deltas.append(f"{delta:+.2f}")
-            effect_rows.append(
-                [VARIANT_LABELS.get(str(row["variant"]), str(row["variant"])), *deltas]
+        effect = effect_table(aggregates, "full")
+        if effect is not None:
+            headers, rows = effect
+            lines.extend(["", "## Effect vs Full Model", ""])
+            lines.append(markdown_table(headers, rows))
+            lines.append("")
+            lines.append(
+                "Deltas are percentage points; positive means better than Full Model."
             )
-        lines.append(markdown_table(effect_headers, effect_rows))
+
+    # The tabular baseline is the second reference that matters: the GNN only
+    # wins after threshold tuning, so a reader needs both sides of that trade.
+    baseline_effect = effect_table(aggregates, "lightgbm")
+    if baseline_effect is not None:
+        headers, rows = baseline_effect
+        lines.extend(["", "## Effect vs LightGBM baseline", ""])
+        lines.append(markdown_table(headers, rows))
         lines.append("")
-        lines.append("Deltas are percentage points; positive means better than Full Model.")
+        lines.append(
+            "Deltas are percentage points; positive means better than LightGBM. "
+            "Both arms share the split, label window and CMA-ES protocol, so a "
+            "positive Δ@CMA-ES with a negative Δ@0.5 means the arm needs "
+            "threshold calibration more than the baseline does."
+        )
+
+    calibration = calibration_rows(aggregates, "pos-weights-auto")
+    if calibration is not None:
+        headers, rows = calibration
+        lines.extend(
+            [
+                "",
+                "## Calibration arm: `pos-weights-auto` vs both references",
+                "",
+                markdown_table(headers, rows),
+                "",
+                "`full` uses the static 252-anchor constants from "
+                "`docs/VALIDATION_DATA.md` §5; `pos-weights-auto` uses "
+                "`(N_observed - N_pos) / N_pos` measured on its own 8 training "
+                "anchors. Everything else is identical, so a difference at a "
+                "fixed threshold is the calibration effect, and a difference "
+                "that survives CMA-ES tuning is the part thresholds cannot fix.",
+            ]
+        )
 
     failed = cast(pd.DataFrame, df[df["status"] != "ok"])
     if not failed.empty:

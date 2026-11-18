@@ -71,7 +71,9 @@ BASELINE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = BASELINE_ROOT.parents[1]
 DEFAULT_OUTPUT_DIR = BASELINE_ROOT / "outputs"
 BASELINE_GROUP = "github-activity-baselines"
-WANDB_DIR = os.environ.get("BASELINE_WANDB_DIR", str(BASELINE_ROOT / "wandb"))
+# Dot-prefixed on purpose: a plain ``wandb/`` directory next to this file would
+# shadow the installed package for every module in ``experiments.baselines``.
+WANDB_DIR = os.environ.get("BASELINE_WANDB_DIR", str(BASELINE_ROOT / ".wandb-runs"))
 Path(WANDB_DIR).mkdir(parents=True, exist_ok=True)
 
 N_USER_FEATURES = 21
@@ -632,8 +634,16 @@ def main(argv: list[str] | None = None) -> int:
 
     train_rows = sum(anchor.n_rows for anchor in train_anchors)
     train_positives = np.sum([anchor.positives for anchor in train_anchors], axis=0)
+    # Same `--pos-weights auto` denominator as the GNN: observed cells per
+    # activity, so a masked cell is not counted as a negative.
+    train_observed = np.sum(
+        [anchor.observed[anchor.mask].sum(axis=0) for anchor in train_anchors], axis=0
+    )
     pos_weights = resolve_pos_weights(
-        args.pos_weights, np.asarray(train_positives), int(train_rows)
+        args.pos_weights,
+        np.asarray(train_positives),
+        int(train_rows),
+        observed_counts=np.asarray(train_observed),
     )
     print(f"  total labelled rows {train_rows:,} across {len(train_anchors)} anchors")
     print(
