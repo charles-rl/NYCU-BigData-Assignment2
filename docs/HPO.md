@@ -253,7 +253,7 @@ trials, so an interrupted run still reaches 60 real results.
 ### Resuming, from scratch
 
 ```bash
-cd /home/mses101137/charles/NYCU-BigData-Assignment2
+cd /train-data-5-hdd/charles/NYCU-BigData-Assignment2
 conda activate bda_asg2     # torch 2.11.0+cu128, optuna 5.0.0
 
 # 0. did anything survive the stop? orphaned trainers from a hard kill
