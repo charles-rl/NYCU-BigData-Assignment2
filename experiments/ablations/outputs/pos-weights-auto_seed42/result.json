@@ -1,0 +1,116 @@
+{
+  "ablation": {
+    "decay_max_days": 30.0,
+    "mask_text": false,
+    "pos_weights_mode": "auto",
+    "residual_fusion": true,
+    "temporal_edge_decay": true,
+    "text_mode": null
+  },
+  "command": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/train_pos_weights_auto.py --seed 42 --output-dir /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs --results-json /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/pos-weights-auto_seed42/result.json --epochs 310 --lr-schedule warm-restarts --num-threads 8",
+  "depth_study": false,
+  "device": "cuda",
+  "dry_run": false,
+  "duration_seconds": 4033.19,
+  "epochs": 310,
+  "git_revision": "fc20c3c",
+  "gnn_layers": 1,
+  "grad_checkpoint": false,
+  "macro_f1": 0.6312084787145272,
+  "macro_f1_default_0_5": 0.5849819525249913,
+  "micro_f1": 0.6845878136200717,
+  "micro_f1_default_0_5": 0.6284485847366535,
+  "n_parameters": 2304630,
+  "n_train_anchors": 8,
+  "node_feature_dims": {
+    "IssueComments": 2,
+    "Issues": 6,
+    "PRReviewComments": 3,
+    "PRReviews": 3,
+    "PullRequests": 4,
+    "Pushes": 1,
+    "Repositories": 2,
+    "Users": 21
+  },
+  "per_activity_f1_cmaes": {
+    "issue_comment": 0.6341694273544723,
+    "open_issue": 0.4804270462633452,
+    "open_pr": 0.6043551088777219,
+    "pr_review": 0.6660127513487003,
+    "pr_review_comment": 0.615593220338983,
+    "push": 0.7866933181039406
+  },
+  "per_activity_f1_default_0_5": {
+    "issue_comment": 0.5908932916232186,
+    "open_issue": 0.39905437352245865,
+    "open_pr": 0.5918881118881119,
+    "pr_review": 0.6121495327102804,
+    "pr_review_comment": 0.5351170568561873,
+    "push": 0.780789348549691
+  },
+  "pos_weights": [
+    3.4585080556168615,
+    9.052998258273202,
+    4.367029755579171,
+    5.043829468960359,
+    7.561771561771562,
+    0.84724762253109
+  ],
+  "pos_weights_mode": "auto",
+  "result_json": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/pos-weights-auto_seed42/result.json",
+  "run_dir": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/pos-weights-auto_seed42",
+  "score_cmaes": 0.6578981461672995,
+  "score_default_0_5": 0.6067152686308224,
+  "seed": 42,
+  "status": "ok",
+  "thresholds": [
+    0.6452312922972345,
+    0.8286603142695301,
+    0.7408145130529513,
+    0.7559988586397806,
+    0.791183248911966,
+    0.31708845071047775
+  ],
+  "timestamp_utc": "2026-11-18T18:22:40.980149+00:00",
+  "train_anchors": [
+    "2025-12-22",
+    "2025-12-29",
+    "2026-01-05",
+    "2026-01-12",
+    "2026-01-19",
+    "2026-01-26",
+    "2026-02-02",
+    "2026-02-08"
+  ],
+  "train_observed_cells": {
+    "issue_comment": 40403,
+    "open_issue": 40403,
+    "open_pr": 40403,
+    "pr_review": 40403,
+    "pr_review_comment": 40403,
+    "push": 40403
+  },
+  "train_positive_cells": {
+    "issue_comment": 7528,
+    "open_issue": 4019,
+    "open_pr": 9062,
+    "pr_review": 6685,
+    "pr_review_comment": 4719,
+    "push": 21872
+  },
+  "val_cutoff": "2026-02-15",
+  "val_graph_on_host": false,
+  "val_rows": 5873,
+  "variant": "pos-weights-auto",
+  "variant_tag": "pos-weights-auto",
+  "wandb_group": "github-activity-ablations",
+  "wandb_mode": "online",
+  "wandb_run_name": "abl-pos-weights-auto-s42",
+  "wandb_tags": [
+    "pos-weights-auto",
+    "seed-42",
+    "ablation",
+    "calibration",
+    "pos-weights"
+  ]
+}

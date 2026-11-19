@@ -1,14 +1,14 @@
 # Ablation experiment summary
 
-- Generated (UTC): `2026-11-18T10:17:17.411368+00:00`
-- Git revision: `5e46c58`
+- Generated (UTC): `2026-11-18T20:36:35.394804+00:00`
+- Git revision: `fc20c3c`
 - W&B groups: ablations=`github-activity-ablations`, baselines=`github-activity-baselines`, depth=`github-activity-depth-study`
 - Mode: **full**
-- Variants: `full`, `no-text`, `no-temporal-decay`, `no-residual-fusion`, `lightgbm`, `depth-1layer`, `depth-2layer`
+- Variants: `full`, `no-text`, `no-temporal-decay`, `no-residual-fusion`, `pos-weights-auto`, `lightgbm`, `depth-1layer`, `depth-2layer`
 - Seeds: 42, 123, 999
 - Epochs: 310
-- Device: cpu
-- Runs: 21/21 successful
+- Device: auto (GNN cuda/cpu; LightGBM cpu)
+- Runs: 24/24 successful
 
 Scores are percentages in this table; the CSV stores fractions.
 
@@ -28,6 +28,9 @@ Scores are percentages in this table; the CSV stores fractions.
 | No residual fusion | 42   | 62.89        | 67.92        | 55.30          | 65.41             | ok     |
 | No residual fusion | 123  | 62.77        | 67.88        | 56.45          | 65.32             | ok     |
 | No residual fusion | 999  | 62.95        | 68.10        | 55.85          | 65.53             | ok     |
+| Auto pos-weights   | 42   | 63.12        | 68.46        | 60.67          | 65.79             | ok     |
+| Auto pos-weights   | 123  | 63.10        | 68.52        | 62.24          | 65.81             | ok     |
+| Auto pos-weights   | 999  | 63.25        | 68.56        | 61.70          | 65.91             | ok     |
 | LightGBM tabular   | 42   | 60.41        | 66.49        | 59.88          | 63.45             | ok     |
 | LightGBM tabular   | 123  | 60.09        | 66.14        | 59.83          | 63.11             | ok     |
 | LightGBM tabular   | 999  | 60.50        | 66.36        | 59.86          | 63.43             | ok     |
@@ -46,6 +49,7 @@ Scores are percentages in this table; the CSV stores fractions.
 | No text features   | 3    | 62.93 ± 0.08 | 68.33 ± 0.07 | 57.28 ± 0.33   | 65.63 ± 0.07      |
 | No temporal decay  | 3    | 63.07 ± 0.20 | 68.48 ± 0.02 | 57.05 ± 0.06   | 65.77 ± 0.11      |
 | No residual fusion | 3    | 62.87 ± 0.10 | 67.97 ± 0.12 | 55.87 ± 0.58   | 65.42 ± 0.10      |
+| Auto pos-weights   | 3    | 63.16 ± 0.08 | 68.51 ± 0.05 | 61.54 ± 0.80   | 65.84 ± 0.06      |
 | LightGBM tabular   | 3    | 60.33 ± 0.22 | 66.33 ± 0.18 | 59.86 ± 0.03   | 63.33 ± 0.19      |
 | GNN depth 1        | 3    | 62.99 ± 0.11 | 68.37 ± 0.04 | 57.00 ± 0.26   | 65.68 ± 0.06      |
 | GNN depth 2        | 3    | 63.24 ± 0.19 | 68.40 ± 0.06 | 56.96 ± 0.93   | 65.82 ± 0.11      |
@@ -58,8 +62,34 @@ Scores are percentages in this table; the CSV stores fractions.
 | No text features   | -0.13      | -0.04      | +0.00        | -0.09           |
 | No temporal decay  | +0.01      | +0.11      | -0.23        | +0.06           |
 | No residual fusion | -0.19      | -0.40      | -1.41        | -0.29           |
+| Auto pos-weights   | +0.10      | +0.15      | +4.26        | +0.12           |
 | LightGBM tabular   | -2.73      | -2.03      | +2.58        | -2.38           |
 | GNN depth 1        | -0.08      | +0.00      | -0.28        | -0.04           |
 | GNN depth 2        | +0.18      | +0.04      | -0.32        | +0.11           |
 
 Deltas are percentage points; positive means better than Full Model.
+
+## Effect vs LightGBM baseline
+
+| Variant            | Δ Macro-F1 | Δ Micro-F1 | Δ Score @0.5 | Δ Score @CMA-ES |
+| ------------------ | ---------- | ---------- | ------------ | --------------- |
+| Full Model         | +2.73      | +2.03      | -2.58        | +2.38           |
+| No text features   | +2.59      | +2.00      | -2.58        | +2.30           |
+| No temporal decay  | +2.74      | +2.15      | -2.81        | +2.44           |
+| No residual fusion | +2.54      | +1.64      | -3.99        | +2.09           |
+| Auto pos-weights   | +2.82      | +2.18      | +1.68        | +2.50           |
+| LightGBM tabular   | +0.00      | +0.00      | +0.00        | +0.00           |
+| GNN depth 1        | +2.65      | +2.04      | -2.86        | +2.34           |
+| GNN depth 2        | +2.90      | +2.07      | -2.90        | +2.49           |
+
+Deltas are percentage points; positive means better than LightGBM. Both arms share the split, label window and CMA-ES protocol, so a positive Δ@CMA-ES with a negative Δ@0.5 means the arm needs threshold calibration more than the baseline does.
+
+## Calibration arm: `pos-weights-auto` vs both references
+
+| Arm              | Score @0.5 (%) | Score @CMA-ES (%) | Δ@0.5 vs full | Δ@CMA vs full | Δ@0.5 vs lgbm | Δ@CMA vs lgbm |
+| ---------------- | -------------- | ----------------- | ------------- | ------------- | ------------- | ------------- |
+| Full Model       | 57.28          | 65.71             | +0.00         | +0.00         | -2.58         | +2.38         |
+| Auto pos-weights | 61.54          | 65.84             | +4.26         | +0.12         | +1.68         | +2.50         |
+| LightGBM tabular | 59.86          | 63.33             | +2.58         | -2.38         | +0.00         | +0.00         |
+
+`full` uses the static 252-anchor constants from `docs/VALIDATION_DATA.md` §5; `pos-weights-auto` uses `(N_observed - N_pos) / N_pos` measured on its own 8 training anchors. Everything else is identical, so a difference at a fixed threshold is the calibration effect, and a difference that survives CMA-ES tuning is the part thresholds cannot fix.
