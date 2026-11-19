@@ -46,6 +46,11 @@ Terminal A — GPU 0, two cells (~3.7 h):
      --output-dir experiments/ablations/outputs --log-dir experiments/ablations/logs
 ```
 
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+   python -m experiments.ablations.run_all_ablations --skip-existing --num-threads 8
+```
+
  Terminal B — GPU 1, one cell (~1.9 h): same command with CUDA_VISIBLE_DEVICES=2 --seeds 999.
 
 Then, once both finish — rebuild the combined summary (~2 min, reuses all ok cells):
