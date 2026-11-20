@@ -18,7 +18,7 @@ experiments/
 │   ├── train_no_residual_fusion.py    # heads see only the post-GNN user embedding
 │   ├── train_pos_weights_auto.py      # Experiment C: pos_weight from this run's anchors
 │   ├── train_gnn_depth.py             # Experiment B: --num_layers 1 vs 2
-│   ├── run_all_ablations.py           # 8 variants × 3 seeds = 24 runs; CSV + Markdown
+│   ├── run_all_ablations.py           # 9 variants × 3 seeds = 27 runs; CSV + Markdown
 │   └── audit_parity.py                # hyperparameter-parity audit
 └── baselines/
     ├── train_lightgbm.py              # Experiment A: 6 binary LightGBM models on Users.x
@@ -29,9 +29,9 @@ Generated artifacts are ignored: `ablation_summary.csv`, `ablation_summary.md`,
 `ablation_summary_dry_run.*`, `outputs/`, `smoke/`, `logs/`, `logs_dry_run/`,
 `wandb/`.
 
-## The 24-run grid
+## The 27-run grid
 
-`run_all_ablations.py` runs **8 variants × 3 seeds = 24 runs** when executed
+`run_all_ablations.py` runs **9 variants × 3 seeds = 27 runs** when executed
 without `--dry-run`.
 
 | variant | module | text features | temporal edge decay | raw-user fusion | pos_weight | GNN layers | W&B group |
@@ -42,6 +42,7 @@ without `--dry-run`.
 | `no-residual-fusion` | `train_no_residual_fusion.py` | present | ON | **OFF** | doc constants | 1 | `github-activity-ablations` |
 | `pos-weights-auto` | `train_pos_weights_auto.py` | present | ON | ON | **(N_obs−N_pos)/N_pos** | 1 | `github-activity-ablations` |
 | `lightgbm` | `../baselines/train_lightgbm.py` | n/a (tabular only) | n/a | n/a | doc constants | n/a | `github-activity-baselines` |
+| `lightgbm-pos-weights-auto` | `../baselines/train_lightgbm.py --pos-weights auto` | n/a (tabular only) | n/a | n/a | **(N_obs−N_pos)/N_pos** | n/a | `github-activity-baselines` |
 | `depth-1layer` | `train_gnn_depth.py --num_layers 1` | present | ON | ON | doc constants | **1** | `github-activity-depth-study` |
 | `depth-2layer` | `train_gnn_depth.py --num_layers 2` | present | ON | ON | doc constants | **2** | `github-activity-depth-study` |
 
@@ -52,6 +53,11 @@ depth-study W&B group so the 1-vs-2 comparison has a matched control pair.
 `pos-weights-auto` changes no architecture at all — it is the graph and model of
 `full` with the loss weights measured on the run's own anchors, which isolates
 calibration from every other factor (Experiment C).
+`lightgbm-pos-weights-auto` is the same calibration change applied to the
+tabular baseline: identical LightGBM features, hyperparameters and protocol,
+with `scale_pos_weight` recomputed from the run's own anchors instead of the doc
+constants. It is the matched control that shows whether the +4-point @0.5 gain
+is specific to the GNN or a property of the loss weighting itself.
 
 ## Hyperparameter parity
 
@@ -213,6 +219,10 @@ python -m experiments.baselines.train_lightgbm --dry-run \
     --seed 42 --device cpu --num-threads 8 \
     --output-dir experiments/ablations/smoke
 
+python -m experiments.baselines.train_lightgbm --dry-run --pos-weights auto \
+    --seed 42 --device cpu --num-threads 8 \
+    --output-dir experiments/ablations/smoke
+
 # --- Experiment B: depth study ---
 python -m experiments.ablations.train_gnn_depth --dry-run \
     --seed 42 --device cpu --num_layers 1 --num-threads 8 \
@@ -223,7 +233,7 @@ python -m experiments.ablations.train_gnn_depth --dry-run \
     --output-dir experiments/ablations/smoke
 ```
 
-All eight write `experiments/ablations/smoke/<variant>_seed42/result.json` and
+All nine write `experiments/ablations/smoke/<variant>_seed42/result.json` and
 exit `0` on success. The result JSON is the source of truth for the summary.
 
 Aggregate the smoke results without retraining:
@@ -279,7 +289,8 @@ The base pipeline's `splits/`, `checkpoints/`, and `logs/` are never touched.
 
 Tags follow `<variant-tag>`, `seed-<seed>`, and `ablation` (plus `dry-run` in
 smoke mode, plus any `--wandb-tags`). Run names are `abl-<variant>-s<seed>` for
-the GNN arms and `lightgbm-s<seed>` for the baseline.
+the GNN arms, `lightgbm-s<seed>` for the doc-weight baseline, and
+`lightgbm-pos-auto-s<seed>` for the tabular calibration arm.
 
 `wandb.summary` records both metric variants at the best epoch/iteration:
 

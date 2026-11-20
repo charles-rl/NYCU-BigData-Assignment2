@@ -1,9 +1,10 @@
 # Ablation + baseline results
 
-24 cells: 7 GNN variants × 3 seeds (42 / 123 / 999) plus a LightGBM baseline × 3
-seeds, all on the documented validation split — cutoff **2026-02-15**, 7-day
-label week, 8 training anchors (2025-12-22 … 2026-02-08), 6,736 test users, 5,873
-validation users.
+27 cells: 7 GNN variants × 3 seeds (42 / 123 / 999) plus 2 LightGBM arms ×
+3 seeds (`lightgbm` with the doc constants and `lightgbm-pos-weights-auto` with
+weights measured on the run's own anchors), all on the documented validation
+split — cutoff **2026-02-15**, 7-day label week, 8 training anchors
+(2025-12-22 … 2026-02-08), 6,736 test users, 5,873 validation users.
 
 Scores are the assignment metric (mean per-activity F1 over the six activities):
 
@@ -33,8 +34,8 @@ produced elsewhere.
 | CPU / RAM | 48 threads, 2× Intel Xeon E5-2650 v4 @ 2.20 GHz / 251 GiB |
 | OS | Ubuntu, kernel 7.0.0-42-generic, glibc 2.43 |
 | env | conda env `bda_asg2`, python 3.11.18, torch-geometric 2.8.1, numpy 2.4.6, pandas 3.1.1, scikit-learn 1.9.1, lightgbm 4.7.0 (pip wheel → CPU-only), cma 4.5.0 |
-| repo revision | `5e46c58` (the 21 original cells) / `fc20c3c` (the 3 calibration cells) |
-| clock | first cell finished 2026-11-16 20:03 UTC, last 2026-11-18 20:36 UTC |
+| repo revision | `5e46c58` (the 21 original cells) / `fc20c3c` (the 3 GNN calibration cells) / the 6 LightGBM cells re-run together in the commit that adds `lightgbm-pos-weights-auto` |
+| clock | first cell finished 2026-11-16 20:03 UTC, GNN grid last 2026-11-18 20:36 UTC; the 3 LightGBM calibration cells ran 2026-11-21 01:21–01:25 UTC |
 | raw corpus | 2025-12-01 → **2026-03-21**, 2,664 hourly GH-Archive files (93 GB) |
 
 What that machine changes, concretely:
@@ -53,8 +54,11 @@ What that machine changes, concretely:
 3. **Per-cell wall time here:** ~68 min for each 1-layer arm (310 epochs),
    ~112 min for `depth-2layer`, 3.8 min for LightGBM. Planned makespan on 3 GPUs
    is 7.1 h; actual elapsed was ~22 h because the 2-layer arm had to be
-   re-run after the OOM above. The three calibration cells were added later and
-   ran as a single shard on one card (`--skip-existing`, 3 × ~67 min = 3.4 h).
+   re-run after the OOM above. The three GNN calibration cells were added later
+   and ran as a single shard on one card (`--skip-existing`, 3 × ~67 min =
+   3.4 h). The three LightGBM calibration cells were also added later; they are
+   CPU-only, so they ran as 3 parallel shards (one per seed, 8 threads each) and
+   finished in 3.8 min each (~4 min wall time for all three).
 4. **The corpus ends 2026-03-21** (this box's free disk cannot hold the full
    2025-12-01 → 2026-10-31 download, ~221 GB), so 2026-02-15 was the latest
    *approved* cutoff available — see `docs/VALIDATION_DATA.md`.
@@ -71,6 +75,7 @@ What that machine changes, concretely:
 | no-text | 62.93 | 68.33 | 57.28 | 65.63 | −0.09 | +0.00 | 67.8 | 2,304,630 | 65.58–65.71 | 0/3 |
 | no-residual-fusion | 62.87 | 67.97 | 55.87 | 65.42 | **−0.29** | **−1.41** | 68.4 | 2,288,502 | 65.32–65.53 | 0/3 |
 | lightgbm | 60.33 | 66.33 | 59.86 | 63.33 | **−2.38** | **+2.58** | 3.8 | 1,860 | 63.11–63.45 | 0/3 |
+| lightgbm-pos-weights-auto | 60.12 | 66.31 | **61.78** | 63.22 | **−2.49** | **+4.50** | 3.8 | 1,860 | 63.10–63.43 | 0/3 |
 
 **Noise floor:** `full` alone scores 65.63 / 65.80 / 65.70 across seeds
 (sd 0.07, range 0.17). Treat any Δ below ~0.2 as seed noise, not an effect. The
@@ -98,6 +103,19 @@ What that machine changes, concretely:
   turns that −2.6 into **+1.7 @0.5** (61.54 vs 59.86) and keeps the +2.5 lead at
   @CMA, so a submission no longer has to choose between calibrated probabilities
   and tuned thresholds — it can have both.
+- **The calibration fix ports to LightGBM, but only ~45% as strongly.**
+  `lightgbm-pos-weights-auto` lifts the baseline from 59.86 to **61.78 @0.5
+  (+1.92, 3/3 seeds)** while leaving @CMA untouched (63.33 → 63.22, −0.12). So the
+  gain is not a GNN artifact — the same inflated `scale_pos_weight` was
+  mis-centering the GBM's probabilities too — but the GNN collected 4.26 points
+  from the same change versus 1.92 here. The residual GNN advantage is therefore
+  mostly in the *tuned* score (+2.62 @CMA over `lightgbm-pos-weights-auto`),
+  which is the part calibration cannot buy.
+- **At the default threshold the tabular baseline now wins outright:** 61.78
+  (`lightgbm-pos-weights-auto`) vs 61.54 (`pos-weights-auto`) and 57.28 (`full`).
+  Only after CMA-ES tuning does the graph model pull ahead (65.84 vs 63.22), and
+  that is exactly the regime where the 8-anchor, 0.5-threshold submission cannot
+  operate.
 
 ## Experiment C: `pos_weight` measured on this run's own anchors
 
@@ -155,16 +173,78 @@ what you do about thresholds — it costs nothing, and it is worth +4.3 points i
 thresholds cannot be tuned on the real test week. With thresholds it is 65.84,
 the best mean in the grid.
 
+## Experiment C on the tabular baseline: `lightgbm-pos-weights-auto`
+
+`run_all_ablations.py` now carries a ninth arm that applies the *identical*
+recalibration to LightGBM: same 21-feature `Users.x` block, same tree
+hyperparameters, same split/threshold protocol, only `scale_pos_weight` swapped
+from the doc constants to `(N_observed − N_pos) / N_pos` measured on the run's
+own 8 anchors. The measured weights are the same six numbers the GNN arm used
+(3.46 / 9.05 / 4.37 / 5.04 / 7.56 / 0.85), since both read the same anchors.
+
+| | lightgbm (doc) | lightgbm-pos-weights-auto | Δ |
+| --- | --- | --- | --- |
+| Macro-F1 | 60.33 | 60.12 | −0.21 |
+| Micro-F1 | 66.33 | 66.31 | −0.02 |
+| Score @0.5 | 59.86 | **61.78** | **+1.92** |
+| Score @CMA-ES | 63.33 | 63.22 | −0.12 |
+
+Per-seed @0.5: 61.89 / 61.78 / 61.68 vs 59.88 / 59.83 / 59.86 — the auto arm
+wins all three seeds by +2.01 / +1.95 / +1.82, so the effect is far larger than
+the seed spread of either arm (sd 0.10 vs 0.03); the @CMA per-seed deltas are
+−0.02 / −0.01 / −0.32, i.e. noise to slightly negative.
+
+Per-activity F1 at the **default 0.5 threshold** (mean of 3 seeds, %):
+
+| activity | lightgbm | lightgbm-auto | Δ |
+| --- | --- | --- | --- |
+| issue_comment | 55.14 | 59.45 | **+4.32** |
+| pr_review_comment | 52.99 | 56.38 | **+3.39** |
+| pr_review | 60.64 | 63.49 | **+2.85** |
+| open_issue | 40.19 | 42.76 | **+2.58** |
+| open_pr | 57.67 | 57.63 | −0.04 |
+| push | 78.42 | 77.66 | −0.76 |
+
+The same five activities that benefited in the GNN benefit here (and `push`,
+the least-inflated weight, degrades slightly), so the mechanism is the loss
+weighting itself, not anything graph-specific. The magnitude is the finding:
+**+1.92 @0.5 for the GBM vs +4.26 for the GNN from the same recalibration.**
+The GNN's doc weights over-shoot further because its BCE operates on
+message-passed logits that are already sharper; the GBM's flatter scores absorb
+less of the inflation. Mean fitted thresholds move the same direction:
+
+| | open_pr | open_issue | issue_comment | pr_review | pr_review_comment | push |
+| --- | --- | --- | --- | --- | --- | --- |
+| Ω, lightgbm (doc) | 0.784 | 0.851 | 0.840 | 0.861 | 0.885 | 0.493 |
+| Ω, lightgbm-auto | 0.653 | 0.752 | 0.696 | 0.727 | 0.777 | 0.378 |
+
+**Caveats.** Same 3-seed caveat as above. The doc-weight `lightgbm` cells were
+re-run alongside these at the same revision, because the two LightGBM arms had
+been sharing one artifact directory (`outputs/lightgbm_seed<seed>/`) and the
+calibration run was overwriting the doc arm's cached predictions; the driver now
+derives its artifact dir from `--results-json`, so each arm writes only its own
+directory. The re-run reproduced the original metrics exactly (59.88 / 59.83 /
+59.86 @0.5), so the grid is unchanged — the cells now just point at correct
+`val_probs.npy` files. Note that the GNN calibration cells ran at `fc20c3c`; the
+only training-path change since then is that directory derivation, which is
+placement-only.
+
+**Takeaway:** calibration is a *general* fix, but it does not make the tabular
+baseline competitive at tuned thresholds. `lightgbm-pos-weights-auto` wins the
+uncalibrated-threshold comparison (61.78, ahead of every GNN arm with doc
+weights) and still loses the tuned one by 2.6 points (63.22 vs 65.84), which is
+where the graph structure actually pays.
+
 ## Per-activity F1 (mean of 3 seeds, @CMA-ES, %)
 
-| activity | full | pos-weights-auto | lightgbm | Δ lgb−full | no-residual-fusion |
-| --- | --- | --- | --- | --- | --- |
-| push | 78.54 | 78.65 | 78.38 | −0.16 | 78.52 |
-| pr_review | 66.60 | 66.52 | 65.15 | −1.46 | 66.45 |
-| issue_comment | 63.21 | 63.60 | 59.44 | −3.76 | 62.44 |
-| pr_review_comment | 62.00 | 61.85 | 59.04 | −2.96 | 61.80 |
-| open_pr | 60.98 | 60.87 | 54.77 | −6.20 | 60.70 |
-| open_issue | 47.05 | 47.45 | 45.22 | −1.83 | 47.32 |
+| activity | full | pos-weights-auto | lightgbm | lightgbm-auto | Δ lgb−full | no-residual-fusion |
+| --- | --- | --- | --- | --- | --- | --- |
+| push | 78.54 | 78.65 | 78.38 | 78.51 | −0.16 | 78.52 |
+| pr_review | 66.60 | 66.52 | 65.15 | 65.08 | −1.46 | 66.45 |
+| issue_comment | 63.21 | 63.60 | 59.44 | 59.70 | −3.76 | 62.44 |
+| pr_review_comment | 62.00 | 61.85 | 59.04 | 58.65 | −2.96 | 61.80 |
+| open_pr | 60.98 | 60.87 | 54.77 | 53.78 | −6.20 | 60.70 |
+| open_issue | 47.05 | 47.45 | 45.22 | 45.00 | −1.83 | 47.32 |
 
 The graph model's whole advantage sits in the **structurally rare** activities
 (`open_pr`, `issue_comment`, `pr_review_comment`). On `push` — 590k of the
@@ -172,26 +252,29 @@ The graph model's whole advantage sits in the **structurally rare** activities
 
 ## Provenance and reproduction
 
-Tracked here: `ablation_summary.csv` / `.md` (the unified 24-row summary) and,
+Tracked here: `ablation_summary.csv` / `.md` (the unified 27-row summary) and,
 under `outputs/<variant>_seed<seed>/`, the `result.json` for every cell — which
 carries the full command line, git revision, duration, parameter count, all
 per-activity F1s, the chosen thresholds, the val cutoff, the `pos_weights` and
-`pos_weights_mode` actually used, and the W&B run name.
+(`pos_weights_mode` for the calibration arms) actually used, and the W&B run
+name.
 `logs/<variant>_seed<seed>.log` keeps stdout, including the memory mode and the
 resolved pos weights each cell ran in.
 
 Deliberately **not** in git (all regenerable by re-running a cell, per
-`experiments/ablations/.gitignore`): `model.pt` weights (~9 MB × 21 cells =
-195 MB), `val_*.npy` / `val_*.csv` caches (18 MB), `wandb/` (28 MB, the original
-21 cells) and `.wandb-runs/` (3.4 MB, the calibration cells — the local W&B dir
+`experiments/ablations/.gitignore`): `model.pt` weights (~9 MB × 21 GNN cells =
+195 MB), `val_*.npy` / `val_*.csv` caches (~24 MB), `wandb/` (28 MB, the original
+21 cells) and `.wandb-runs/` (the calibration cells — the local W&B dir
 moved there in `f62ad04` because a plain `wandb/` next to the package shadows the
 installed package), `smoke/`, `logs_dry_run/`. Weights are only needed for
 inference — `run_all_ablations.py` rewrites them from scratch in ~68 min per arm.
 
-W&B: all 24 cells synced online as `abl-<variant>-s<seed>` under
+W&B: all 27 cells synced online as `abl-<variant>-s<seed>` under
 `nycu-bigdata-asg2` (see the `View run at` line in each log); the calibration runs
-carry the extra tags `calibration` and `pos-weights`. No key is stored in the
-repo; supply `WANDB_API_KEY` yourself.
+carry the extra tags `calibration` and `pos-weights`. The two LightGBM arms share
+the `github-activity-baselines` group; run names are `lightgbm-s<seed>` for the
+doc arm and `lightgbm-pos-auto-s<seed>` for the calibration arm. No key is stored
+in the repo; supply `WANDB_API_KEY` yourself.
 
 Reproduce on a 24 GiB×N box:
 
@@ -211,13 +294,21 @@ optional.
 
 Adding one arm to an existing grid is a single command, because
 `--skip-existing` runs only the cells with no `ok` result yet — this is exactly
-how the 3 calibration cells were produced on 2026-11-18:
+how the 3 GNN calibration cells were produced on 2026-11-18 and the 3 LightGBM
+calibration cells on 2026-11-21:
 
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
   python -m experiments.ablations.run_all_ablations --skip-existing --num-threads 8
+
+# The LightGBM arm is CPU-only, so 3 seed-shards can run in parallel.
+for S in 42 123 999; do
+  python -m experiments.ablations.run_all_ablations --skip-existing \
+    --variants lightgbm-pos-weights-auto --seeds $S --num-threads 8 \
+    --summary-csv /tmp/shard_$S.csv --summary-md /tmp/shard_$S.md &
+done; wait
 ```
 
-Keep `--variants` out of it and the summary it writes is already the full 24-row
+Keep `--variants` out of it and the summary it writes is already the full 27-row
 one. Verify parity after a code change with `python -m
 experiments.ablations.audit_parity` (currently PASS, 19/19 shared arguments).

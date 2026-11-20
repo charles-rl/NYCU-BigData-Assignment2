@@ -3,14 +3,13 @@ $ /train-data-5-hdd/charles/miniconda3/envs/bda_asg2/bin/python -m experiments.b
 wandb: [wandb.login()] Loaded credentials for https://api.forge.coreweave.com from /home/charles/.netrc.
 wandb: Currently logged in as: charlessosmena0 (charlessosmena0-academia-sinica) to https://api.forge.coreweave.com. Use `wandb login --relogin` to force relogin
 wandb: Tracking run with wandb version 0.31.0
-wandb: Run data is saved locally in /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/baselines/wandb/wandb/run-20261117_040742-41d1wjzt
+wandb: Run data is saved locally in /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/baselines/.wandb-runs/wandb/run-20261121_013037-cuzpyqxx
 wandb: Run `wandb offline` to turn off syncing.
 wandb: Syncing run lightgbm-s123
 wandb: ⭐️ View project at https://forge.coreweave.com/wandb/charlessosmena0-academia-sinica/nycu-bigdata-asg2
-wandb: 🚀 View run at https://forge.coreweave.com/wandb/charlessosmena0-academia-sinica/nycu-bigdata-asg2/runs/41d1wjzt
+wandb: 🚀 View run at https://forge.coreweave.com/wandb/charlessosmena0-academia-sinica/nycu-bigdata-asg2/runs/cuzpyqxx
 wandb: updating run metadata; uploading summary
-wandb: uploading summary; uploading wandb-metadata.json; uploading requirements.txt; uploading wandb-summary.json; uploading config.yaml
-wandb: uploading wandb-metadata.json; uploading requirements.txt; uploading wandb-summary.json
+wandb: uploading requirements.txt; uploading wandb-summary.json; uploading config.yaml
 wandb: uploading history steps 0-0, summary
 wandb: 
 wandb: Run history:
@@ -39,10 +38,10 @@ wandb:   train/macro_f1_theta_fit 0.70705
 wandb:   train/micro_f1_theta_fit 0.73698
 wandb:                        +20 ...
 wandb: 
-wandb: 🚀 View run lightgbm-s123 at: https://forge.coreweave.com/wandb/charlessosmena0-academia-sinica/nycu-bigdata-asg2/runs/41d1wjzt
+wandb: 🚀 View run lightgbm-s123 at: https://forge.coreweave.com/wandb/charlessosmena0-academia-sinica/nycu-bigdata-asg2/runs/cuzpyqxx
 wandb: ⭐️ View project at: https://forge.coreweave.com/wandb/charlessosmena0-academia-sinica/nycu-bigdata-asg2
 wandb: Synced 4 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
-wandb: Find logs at: ./experiments/baselines/wandb/wandb/run-20261117_040742-41d1wjzt/logs
+wandb: Find logs at: ./experiments/baselines/.wandb-runs/wandb/run-20261121_013037-cuzpyqxx/logs
 ==============================================================================
 LightGBM baseline | seed 123 | boosting rounds 310 | device cpu | dry_run=False
   features: data['Users'].x (21 columns) | pos_weights=doc | threshold optimizer=CMA-ES
@@ -59,7 +58,7 @@ Loading tables from processed_tables/db
   [val] cutoff 2026-02-15 | label window 2026-02-15 .. 2026-02-22 | leakage check: OK
   [val] 23,454 users, 5,873 cohort rows, 21 tabular features
   [val] positives open_pr=1,330 (22.6%)  open_issue=544 (9.3%)  issue_comment=1,026 (17.5%)  pr_review=880 (15.0%)  pr_review_comment=626 (10.7%)  push=3,127 (53.2%)
-  [val] built in 55.7s
+  [val] built in 54.4s
   [train 2025-12-22] cutoff 2025-12-22 | label window 2025-12-22 .. 2025-12-29 | leakage check: OK
   [train 2025-12-22] 10,851 users, 4,320 cohort rows, 21 tabular features
   [train 2025-12-22] positives open_pr=853 (19.7%)  open_issue=359 (8.3%)  issue_comment=742 (17.2%)  pr_review=585 (13.5%)  pr_review_comment=373 (8.6%)  push=2,174 (50.3%)
@@ -71,27 +70,27 @@ Loading tables from processed_tables/db
   [train 2026-01-05] cutoff 2026-01-05 | label window 2026-01-05 .. 2026-01-12 | leakage check: OK
   [train 2026-01-05] 13,547 users, 4,765 cohort rows, 21 tabular features
   [train 2026-01-05] positives open_pr=1,171 (24.6%)  open_issue=537 (11.3%)  issue_comment=1,019 (21.4%)  pr_review=891 (18.7%)  pr_review_comment=639 (13.4%)  push=2,683 (56.3%)
-  [train 2026-01-05] built in 15.1s
+  [train 2026-01-05] built in 15.0s
   [train 2026-01-12] cutoff 2026-01-12 | label window 2026-01-12 .. 2026-01-19 | leakage check: OK
   [train 2026-01-12] 15,446 users, 4,986 cohort rows, 21 tabular features
   [train 2026-01-12] positives open_pr=1,185 (23.8%)  open_issue=548 (11.0%)  issue_comment=1,019 (20.4%)  pr_review=924 (18.5%)  pr_review_comment=679 (13.6%)  push=2,813 (56.4%)
-  [train 2026-01-12] built in 16.9s
+  [train 2026-01-12] built in 16.3s
   [train 2026-01-19] cutoff 2026-01-19 | label window 2026-01-19 .. 2026-01-26 | leakage check: OK
   [train 2026-01-19] 17,136 users, 5,170 cohort rows, 21 tabular features
   [train 2026-01-19] positives open_pr=1,220 (23.6%)  open_issue=513 (9.9%)  issue_comment=1,022 (19.8%)  pr_review=949 (18.4%)  pr_review_comment=682 (13.2%)  push=2,874 (55.6%)
-  [train 2026-01-19] built in 18.4s
+  [train 2026-01-19] built in 18.2s
   [train 2026-01-26] cutoff 2026-01-26 | label window 2026-01-26 .. 2026-02-02 | leakage check: OK
   [train 2026-01-26] 19,084 users, 5,341 cohort rows, 21 tabular features
   [train 2026-01-26] positives open_pr=1,213 (22.7%)  open_issue=581 (10.9%)  issue_comment=990 (18.5%)  pr_review=928 (17.4%)  pr_review_comment=670 (12.5%)  push=2,962 (55.5%)
-  [train 2026-01-26] built in 20.1s
+  [train 2026-01-26] built in 19.6s
   [train 2026-02-02] cutoff 2026-02-02 | label window 2026-02-02 .. 2026-02-09 | leakage check: OK
   [train 2026-02-02] 20,640 users, 5,527 cohort rows, 21 tabular features
   [train 2026-02-02] positives open_pr=1,260 (22.8%)  open_issue=555 (10.0%)  issue_comment=1,001 (18.1%)  pr_review=905 (16.4%)  pr_review_comment=643 (11.6%)  push=3,065 (55.5%)
-  [train 2026-02-02] built in 21.4s
+  [train 2026-02-02] built in 21.1s
   [train 2026-02-08] cutoff 2026-02-08 | label window 2026-02-08 .. 2026-02-15 | leakage check: OK
   [train 2026-02-08] 22,008 users, 5,706 cohort rows, 21 tabular features
   [train 2026-02-08] positives open_pr=1,278 (22.4%)  open_issue=558 (9.8%)  issue_comment=1,011 (17.7%)  pr_review=942 (16.5%)  pr_review_comment=655 (11.5%)  push=3,112 (54.5%)
-  [train 2026-02-08] built in 22.6s
+  [train 2026-02-08] built in 22.5s
 
 Anchors:
   2025-12-22  rows  4,320  observed cells  25,920 (100.0%)
@@ -133,6 +132,5 @@ LIGHTGBM RESULT | seed 123
   Score CMA-ES     63.11%
   Thresholds      [0.782, 0.846, 0.838, 0.873, 0.889, 0.504]
   Result JSON     /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/lightgbm_seed123/result.json
-  Duration        227.0s
+  Duration        223.9s
 ==============================================================================
-=

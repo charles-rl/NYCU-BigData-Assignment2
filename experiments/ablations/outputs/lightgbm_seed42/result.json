@@ -57,7 +57,7 @@
   "command": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/baselines/train_lightgbm.py --seed 42 --output-dir /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs --results-json /train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/lightgbm_seed42/result.json --epochs 310 --num-threads 8",
   "device": "cpu",
   "dry_run": false,
-  "duration_seconds": 229.56,
+  "duration_seconds": 228.25,
   "epochs": 310,
   "feature_dim": 21,
   "feature_importance_csv": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/lightgbm_seed42/feature_importance.csv",
@@ -87,7 +87,7 @@
   "fit_macro_f1": 0.704404903059071,
   "fit_micro_f1": 0.7358092781212472,
   "fit_score": 0.7201070905901591,
-  "git_revision": "5e46c58",
+  "git_revision": "24f814f",
   "lgbm_params": {
     "colsample_bytree": 0.8,
     "deterministic": true,
@@ -142,6 +142,7 @@
     19.29,
     1.32
   ],
+  "pos_weights_mode": "doc",
   "result_json": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/lightgbm_seed42/result.json",
   "run_dir": "/train-data-5-hdd/charles/NYCU-BigData-Assignment2/experiments/ablations/outputs/lightgbm_seed42",
   "score_cmaes": 0.6345386986851903,
@@ -156,7 +157,7 @@
     0.8945876412182829,
     0.48864021213115405
   ],
-  "timestamp_utc": "2026-11-16T20:03:37.831245+00:00",
+  "timestamp_utc": "2026-11-20T17:30:41.306073+00:00",
   "train_anchors": [
     "2025-12-22",
     "2025-12-29",

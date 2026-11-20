@@ -12,8 +12,8 @@ override is ``--epochs 310`` (the base default is 150); it is reported as
 
 It also checks that the LightGBM baseline uses the same temporal split,
 calibration, CMA-ES budget, and project defaults, that the pos-weight
-calibration arm pins ``pos_weights="auto"`` while every other arm obeys the CLI,
-and that the three W&B groups and all eight orchestrator modules exist.
+calibration arms pin ``pos_weights="auto"`` while every other arm obeys the CLI,
+and that the three W&B groups and all nine orchestrator modules exist.
 
 Exit code 0 = PASS, 1 = mismatch.
 """
@@ -261,11 +261,12 @@ def main() -> int:
         "no-residual-fusion",
         "pos-weights-auto",
         "lightgbm",
+        "lightgbm-pos-weights-auto",
         "depth-1layer",
         "depth-2layer",
     ]
     coverage_ok = expected_variants == VARIANT_ORDER
-    print(f"  expected 8-variant order: {'OK' if coverage_ok else 'MISMATCH'}")
+    print(f"  expected 9-variant order: {'OK' if coverage_ok else 'MISMATCH'}")
     all_ok &= coverage_ok
     for module in sorted(set(VARIANT_MODULES.values())):
         exists = importlib.util.find_spec(module) is not None

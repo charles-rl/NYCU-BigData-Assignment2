@@ -506,7 +506,15 @@ def main(argv: list[str] | None = None) -> int:
     set_seed(args.seed)
     started = time.time()
     run_name = args.run_name or f"lightgbm-s{args.seed}"
-    run_dir = Path(args.output_dir) / f"lightgbm_seed{args.seed}"
+    # The orchestrator passes an explicit --results-json that already encodes the
+    # variant (e.g. outputs/lightgbm-pos-weights-auto_seed42/result.json). Use its
+    # parent as the artifact dir, otherwise both LightGBM arms share
+    # `lightgbm_seed<seed>/` and the second run overwrites the first's cached
+    # predictions while leaving the first's result.json in place.
+    if args.results_json:
+        run_dir = Path(args.results_json).parent
+    else:
+        run_dir = Path(args.output_dir) / f"lightgbm_seed{args.seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
     results_json = (
         Path(args.results_json) if args.results_json else run_dir / "result.json"
@@ -807,6 +815,7 @@ def main(argv: list[str] | None = None) -> int:
         "n_train_rows": int(train_rows),
         "n_observed_cells": int(sum(anchor.n_observed for anchor in train_anchors)),
         "train_positives": [int(value) for value in train_positives],
+        "pos_weights_mode": str(args.pos_weights),
         "pos_weights": [float(value) for value in pos_weights],
         "feature_dim": N_USER_FEATURES,
         "feature_names": train_anchors[0].feature_names,
@@ -847,6 +856,7 @@ def main(argv: list[str] | None = None) -> int:
             "device": lgbm_device(args.device),
             "feature_dim": N_USER_FEATURES,
             "feature_names": train_anchors[0].feature_names,
+            "pos_weights_mode": str(args.pos_weights),
             "pos_weights": [float(value) for value in pos_weights],
             "lgbm_params": lgbm_params(args, 0, float(pos_weights[0])),
             "threshold_optimizer": "CMA-ES",

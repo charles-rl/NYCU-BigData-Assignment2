@@ -3,18 +3,21 @@
 The grid is:
 
     GNN ablations (4):   full, no-text, no-temporal-decay, no-residual-fusion
-    calibration study:   pos-weights-auto
+    calibration study:   pos-weights-auto (GNN), lightgbm-pos-weights-auto (GBM)
     tabular baseline:    lightgbm
     depth study (2):     depth-1layer, depth-2layer
     seeds:               [42, 123, 999]
-    -> 8 variants x 3 seeds = 24 runs when executed without --dry-run
+    -> 9 variants x 3 seeds = 27 runs when executed without --dry-run
 
 All GNN children share the base hyperparameters (epochs=310, warm-restarts,
 calibrated doc pos_weights); only the named component or the layer count
 differs -- except ``pos-weights-auto``, which keeps the architecture and swaps
 the doc constants for ``(N_observed - N_pos) / N_pos`` measured on the run's own
-anchors.  The LightGBM baseline shares the temporal split, calibration, CMA-ES
-threshold protocol, and metric, but uses tree-specific model hyperparameters.
+anchors.  ``lightgbm-pos-weights-auto`` applies that same calibration change to
+LightGBM's ``scale_pos_weight`` so the calibration effect can be read off the
+tabular baseline too.  The LightGBM baseline shares the temporal split,
+calibration, CMA-ES threshold protocol, and metric, but uses tree-specific model
+hyperparameters.
 
 Each run is an isolated subprocess (``python -m experiments.ablations.train_*``
 or ``experiments.baselines.train_lightgbm``) so a crash or a CUDA OOM in one
@@ -36,7 +39,7 @@ training them again.
 
 Examples
 --------
-    # 7 smoke runs (one per variant, seed 42), CPU, no full training
+    # 8 smoke runs (one per variant), CPU, no full training
     python -m experiments.ablations.run_all_ablations --dry-run --device cpu
 
     # the real 24-run grid (defaults: epochs 310, warm-restarts)
@@ -85,6 +88,7 @@ VARIANT_ORDER = [
     "no-residual-fusion",
     "pos-weights-auto",
     "lightgbm",
+    "lightgbm-pos-weights-auto",
     "depth-1layer",
     "depth-2layer",
 ]
@@ -95,10 +99,20 @@ VARIANT_MODULES = {
     "no-residual-fusion": "experiments.ablations.train_no_residual_fusion",
     "pos-weights-auto": "experiments.ablations.train_pos_weights_auto",
     "lightgbm": "experiments.baselines.train_lightgbm",
+    "lightgbm-pos-weights-auto": "experiments.baselines.train_lightgbm",
     "depth-1layer": "experiments.ablations.train_gnn_depth",
     "depth-2layer": "experiments.ablations.train_gnn_depth",
 }
 VARIANT_EXTRA_ARGS = {
+    # Same calibration change as the GNN `pos-weights-auto` arm, applied to the
+    # LightGBM scale_pos_weight: the doc constants come from a 252-anchor panel,
+    # so they are 1.5-2.6x inflated relative to these 8 training anchors.
+    "lightgbm-pos-weights-auto": [
+        "--pos-weights",
+        "auto",
+        "--wandb-tags",
+        "calibration,pos-weights",
+    ],
     "depth-1layer": ["--num_layers", "1"],
     # The 2-layer arm needs ~6 GiB more than the 1-layer arm and does not fit a
     # 24 GiB card without help: run unassisted it reaches 22.69 GiB allocated and
@@ -120,10 +134,15 @@ VARIANT_GROUPS = {
     "no-residual-fusion": ABLATION_GROUP,
     "pos-weights-auto": ABLATION_GROUP,
     "lightgbm": BASELINE_GROUP,
+    "lightgbm-pos-weights-auto": BASELINE_GROUP,
     "depth-1layer": DEPTH_GROUP,
     "depth-2layer": DEPTH_GROUP,
 }
-GNN_VARIANTS = {variant for variant in VARIANT_ORDER if variant != "lightgbm"}
+GNN_VARIANTS = {
+    variant
+    for variant in VARIANT_ORDER
+    if variant not in {"lightgbm", "lightgbm-pos-weights-auto"}
+}
 VARIANT_LABELS = {
     "full": "Full Model",
     "no-text": "No text features",
@@ -131,6 +150,7 @@ VARIANT_LABELS = {
     "no-residual-fusion": "No residual fusion",
     "pos-weights-auto": "Auto pos-weights",
     "lightgbm": "LightGBM tabular",
+    "lightgbm-pos-weights-auto": "LightGBM auto pos-weights",
     "depth-1layer": "GNN depth 1",
     "depth-2layer": "GNN depth 2",
 }
@@ -322,6 +342,10 @@ def build_command(
     if args.num_threads > 0:
         cmd += ["--num-threads", str(args.num_threads)]
     cmd += VARIANT_EXTRA_ARGS.get(variant, [])
+    if variant == "lightgbm-pos-weights-auto":
+        # Keep the calibration cell visually distinct from the doc-weight
+        # baseline in W&B (same run name otherwise, same project/group).
+        cmd += ["--run-name", f"lightgbm-pos-auto-s{seed}"]
     return cmd
 
 
@@ -796,6 +820,24 @@ def render_markdown(
                 "anchors. Everything else is identical, so a difference at a "
                 "fixed threshold is the calibration effect, and a difference "
                 "that survives CMA-ES tuning is the part thresholds cannot fix.",
+            ]
+        )
+
+    lgbm_calibration = calibration_rows(aggregates, "lightgbm-pos-weights-auto")
+    if lgbm_calibration is not None:
+        headers, rows = lgbm_calibration
+        lines.extend(
+            [
+                "",
+                "## Calibration arm: `lightgbm-pos-weights-auto` vs both references",
+                "",
+                markdown_table(headers, rows),
+                "",
+                "The same `(N_observed - N_pos) / N_pos` recalibration applied to "
+                "the tabular baseline's `scale_pos_weight`. Its `Δ vs lgbm` is "
+                "the matched contrast (identical model, only the weights change); "
+                "its `Δ vs full` says how much of the GNN's calibration gap the "
+                "baseline closes.",
             ]
         )
 
