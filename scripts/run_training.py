@@ -173,6 +173,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     ap.add_argument(
+        "--theta-override",
+        default=None,
+        help=(
+            "six comma-separated thresholds that replace the fitted/checkpoint ones "
+            "at prediction time, e.g. to re-threshold an activity whose stream the "
+            "archive damaged in the test regime (push). Does not retrain."
+        ),
+    )
+    ap.add_argument(
         "--val-cutoff",
         default="2026-02-15",
         help="validation cutoff (features < cutoff, labels in the next --days days)",
@@ -860,6 +869,25 @@ def preflight_largest_anchor(
         torch.cuda.reset_peak_memory_stats()
 
 
+def resolve_theta_override(spec: str | None) -> np.ndarray | None:
+    """Parse ``--theta-override`` into a six-entry float array (or None)."""
+    if not spec:
+        return None
+    parts = [part.strip() for part in spec.split(",") if part.strip()]
+    if len(parts) != len(ACTIVITY_NAMES):
+        raise SystemExit(
+            f"--theta-override needs {len(ACTIVITY_NAMES)} comma-separated values, "
+            f"got {len(parts)}"
+        )
+    try:
+        values = np.asarray([float(part) for part in parts], dtype=np.float64)
+    except ValueError as exc:
+        raise SystemExit(f"--theta-override values must be numbers: {exc}") from exc
+    if np.any(values <= 0.0) or np.any(values >= 1.0):
+        raise SystemExit("--theta-override values must lie strictly inside (0, 1)")
+    return values
+
+
 def run_final(args: argparse.Namespace) -> int:
     """The submission run: no held-out week, thresholds fitted on train rows."""
     observed_mode = resolve_anchor_observed(args)
@@ -1108,6 +1136,12 @@ def run_final(args: argparse.Namespace) -> int:
 
     print(f"\nBuilding the test-week graph at {test_cutoff} ...")
     graph, users = build_inference_graph(tables, test_cutoff)
+    override = resolve_theta_override(args.theta_override)
+    if override is not None:
+        print("\n  [override] thresholds replaced by --theta-override:")
+        for act, old, new in zip(ACTIVITY_NAMES, thresholds, override, strict=True):
+            print(f"    {act:<20} {old:.3f} -> {new:.3f}")
+        thresholds = override
     result = predict_test_week(
         model=model,
         graph=graph,
@@ -1152,6 +1186,12 @@ def _run_predict_only(
 
     print(f"Building the test-week graph at {test_cutoff} ...")
     graph, users = build_inference_graph(tables, test_cutoff)
+    override = resolve_theta_override(args.theta_override)
+    if override is not None:
+        print("\n  [override] thresholds replaced by --theta-override:")
+        for act, old, new in zip(ACTIVITY_NAMES, thresholds, override, strict=True):
+            print(f"    {act:<20} {old:.3f} -> {new:.3f}")
+        thresholds = override
     in_dims = {node_type: int(graph[node_type].x.shape[1]) for node_type in graph.node_types}
     model = GitHubHeteroHGT(
         metadata=graph.metadata(),

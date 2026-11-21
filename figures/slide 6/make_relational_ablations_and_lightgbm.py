@@ -74,10 +74,10 @@ FIG_W, FIG_H, DPI = 14.0, 6.0, 300
 # per-cell result.json files, for machines without the artifacts.
 FALLBACK_SCORES = {
     # arm -> (mean @CMA-ES %, sd, mean @0.5 %)
-    "full": (65.7138, 0.0863, 57.2767),
-    "no-text": (65.6280, 0.0715, 57.2822),
-    "no-residual-fusion": (65.4191, 0.1016, 55.8677),
-    "lightgbm": (63.3327, 0.1904, 59.8564),
+    "full": (65.7138, 0.0863, 57.2774),
+    "no-text": (65.6280, 0.0715, 57.2820),
+    "no-residual-fusion": (65.4191, 0.1016, 55.8708),
+    "lightgbm": (63.3327, 0.1904, 59.8588),
 }
 FALLBACK_ACTIVITY = {
     # activity -> (delta pts, sd over seeds, paired p)

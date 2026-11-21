@@ -12,26 +12,26 @@
     "Users"
   ],
   "rows_visible_at_cutoff": {
-    "IssueComments": 61284,
-    "Issues": 89028,
-    "PRReviewComments": 40396,
-    "PRReviews": 55438,
-    "PullRequests": 154238,
-    "Pushes": 590542,
-    "Repositories": 49790,
-    "Users": 30230
+    "IssueComments": 108143,
+    "Issues": 177324,
+    "PRReviewComments": 67339,
+    "PRReviews": 92837,
+    "PullRequests": 309961,
+    "Pushes": 1676910,
+    "Repositories": 111013,
+    "Users": 46240
   },
   "num_node_types": 8,
   "num_edge_types": 26,
   "node_types": {
-    "Users": 30230,
-    "Repositories": 49790,
-    "PullRequests": 154238,
-    "Issues": 89028,
-    "IssueComments": 61284,
-    "PRReviews": 55438,
-    "PRReviewComments": 40396,
-    "Pushes": 590542
+    "Users": 46240,
+    "Repositories": 111013,
+    "PullRequests": 309961,
+    "Issues": 177324,
+    "IssueComments": 108143,
+    "PRReviews": 92837,
+    "PRReviewComments": 67339,
+    "Pushes": 1676910
   },
   "node_feature_dims": {
     "Users": 21,
@@ -48,91 +48,91 @@
       "src": "Repositories",
       "relation": "owner",
       "dst": "Users",
-      "edges": 28453,
+      "edges": 68010,
       "reverse": false
     },
     {
       "src": "PullRequests",
       "relation": "authored_by",
       "dst": "Users",
-      "edges": 70624,
+      "edges": 137770,
       "reverse": false
     },
     {
       "src": "PullRequests",
       "relation": "belongs_to",
       "dst": "Repositories",
-      "edges": 154238,
+      "edges": 309961,
       "reverse": false
     },
     {
       "src": "Issues",
       "relation": "authored_by",
       "dst": "Users",
-      "edges": 89028,
+      "edges": 177324,
       "reverse": false
     },
     {
       "src": "Issues",
       "relation": "belongs_to",
       "dst": "Repositories",
-      "edges": 89028,
+      "edges": 177324,
       "reverse": false
     },
     {
       "src": "IssueComments",
       "relation": "authored_by",
       "dst": "Users",
-      "edges": 61284,
+      "edges": 108143,
       "reverse": false
     },
     {
       "src": "IssueComments",
       "relation": "comment_on",
       "dst": "Issues",
-      "edges": 61284,
+      "edges": 108143,
       "reverse": false
     },
     {
       "src": "PRReviews",
       "relation": "reviewed_by",
       "dst": "Users",
-      "edges": 55438,
+      "edges": 92837,
       "reverse": false
     },
     {
       "src": "PRReviews",
       "relation": "review_of",
       "dst": "PullRequests",
-      "edges": 55438,
+      "edges": 92833,
       "reverse": false
     },
     {
       "src": "PRReviewComments",
       "relation": "authored_by",
       "dst": "Users",
-      "edges": 40396,
+      "edges": 67339,
       "reverse": false
     },
     {
       "src": "PRReviewComments",
       "relation": "comment_on",
       "dst": "PullRequests",
-      "edges": 40396,
+      "edges": 67337,
       "reverse": false
     },
     {
       "src": "Pushes",
       "relation": "pushed_by",
       "dst": "Users",
-      "edges": 590542,
+      "edges": 1676910,
       "reverse": false
     },
     {
       "src": "Pushes",
       "relation": "pushed_to",
       "dst": "Repositories",
-      "edges": 590542,
+      "edges": 1676910,
       "reverse": false
     }
   ],
@@ -141,91 +141,91 @@
       "src": "Users",
       "relation": "rev_owner",
       "dst": "Repositories",
-      "edges": 28453,
+      "edges": 68010,
       "reverse": true
     },
     {
       "src": "Users",
       "relation": "rev_authored_by",
       "dst": "PullRequests",
-      "edges": 70624,
+      "edges": 137770,
       "reverse": true
     },
     {
       "src": "Repositories",
       "relation": "rev_belongs_to",
       "dst": "PullRequests",
-      "edges": 154238,
+      "edges": 309961,
       "reverse": true
     },
     {
       "src": "Users",
       "relation": "rev_authored_by",
       "dst": "Issues",
-      "edges": 89028,
+      "edges": 177324,
       "reverse": true
     },
     {
       "src": "Repositories",
       "relation": "rev_belongs_to",
       "dst": "Issues",
-      "edges": 89028,
+      "edges": 177324,
       "reverse": true
     },
     {
       "src": "Users",
       "relation": "rev_authored_by",
       "dst": "IssueComments",
-      "edges": 61284,
+      "edges": 108143,
       "reverse": true
     },
     {
       "src": "Issues",
       "relation": "rev_comment_on",
       "dst": "IssueComments",
-      "edges": 61284,
+      "edges": 108143,
       "reverse": true
     },
     {
       "src": "Users",
       "relation": "rev_reviewed_by",
       "dst": "PRReviews",
-      "edges": 55438,
+      "edges": 92837,
       "reverse": true
     },
     {
       "src": "PullRequests",
       "relation": "rev_review_of",
       "dst": "PRReviews",
-      "edges": 55438,
+      "edges": 92833,
       "reverse": true
     },
     {
       "src": "Users",
       "relation": "rev_authored_by",
       "dst": "PRReviewComments",
-      "edges": 40396,
+      "edges": 67339,
       "reverse": true
     },
     {
       "src": "PullRequests",
       "relation": "rev_comment_on",
       "dst": "PRReviewComments",
-      "edges": 40396,
+      "edges": 67337,
       "reverse": true
     },
     {
       "src": "Users",
       "relation": "rev_pushed_by",
       "dst": "Pushes",
-      "edges": 590542,
+      "edges": 1676910,
       "reverse": true
     },
     {
       "src": "Repositories",
       "relation": "rev_pushed_to",
       "dst": "Pushes",
-      "edges": 590542,
+      "edges": 1676910,
       "reverse": true
     }
   ]

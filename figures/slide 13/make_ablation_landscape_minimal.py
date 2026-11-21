@@ -19,7 +19,7 @@ the slide spec, all of them accuracy decisions:
   the doc arm at tuned thresholds (-0.12) while 1.92 above it at the default 0.5
   threshold.  The parity claim is therefore "+2.62 @CMA for the graph", measured as
   65.84 - 63.22, and the group header states the flip the grid records: at 0.5 the
-  tabular baseline leads 61.78 vs 61.54 (``experiments/ablations/RESULTS.md:103-110``).
+  tabular baseline leads 61.78 vs 61.54 (``experiments/ablations/RESULTS.md:114-115``).
 * **"67m" and "112m" are minutes per cell, not parameter counts.**  Measured:
   67.6 vs 112.4 min/cell (the grid's own "+65% wall time" is against ``full`` at
   68.3), while parameters go 2,304,630 -> 3,048,166 = +32.3%.
@@ -27,7 +27,7 @@ the slide spec, all of them accuracy decisions:
 Whiskers are +-1 sample sd over the three seeds.  Note the grid quotes population
 sd (``full`` sd 0.07) where this chart uses sample sd (0.09); the per-seed range
 65.63-65.80 is identical either way, and the chart's rule of thumb - any delta
-under ~0.2 is seed noise - is the grid's own (``RESULTS.md:83-84``).
+under ~0.2 is seed noise - is the grid's own (``RESULTS.md:81-82``).
 
     conda run -n bda_asg2 python "figures/slide 13/make_ablation_landscape_minimal.py"
 """

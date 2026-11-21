@@ -12,23 +12,23 @@ Every string on this card is a real string from this repo, not a mock-up:
   same set as ``submission/sample_submission.csv``, and every one of them is inside the
   9,000 ids in ``scripts/cohort.txt``.  So ``Format check: no errors (4465 users)`` is
   the verbatim print at ``scripts/evaluate.py:100`` and the output block documented in
-  ``docs/FINAL_RUN.md:138-145``;
+  ``docs/FINAL_RUN.md:138-143``;
 * the validation paths are what the driver actually writes: predictions to
-  ``splits/val_best_pred_<val-cutoff>.csv`` (``scripts/run_training.py:1414-1415``)
-  and truth to ``splits/val_truth_<val-cutoff>.csv`` (``scripts/run_training.py:1381``)
+  ``splits/val_best_pred_<val-cutoff>.csv`` (``scripts/run_training.py:1455``)
+  and truth to ``splits/val_truth_<val-cutoff>.csv`` (``scripts/run_training.py:1421``)
   at the protocol's cutoff 2026-02-15 (``experiments/ablations/RESULTS.md:6``,
-  ``docs/HPO.md:19``).  The stale ``splits/answer.csv`` is deliberately not shown:
+  ``docs/HPO.md:99``).  The stale ``splits/answer.csv`` is deliberately not shown:
   ``docs/VALIDATION_DATA.md:23`` calls it stale and invalid, and the driver writes a
   fresh truth file "so the check never silently reads a stale splits/answer.csv"
-  (``scripts/run_training.py:1379-1380``);
-* the three metric lines are the exact strings ``scripts/evaluate.py:104-106``
+  (``scripts/run_training.py:1420``);
+* the three metric lines are the exact strings ``scripts/evaluate.py:109-111``
   prints, ``Score:`` with its four spaces included, using the numbers of the
   ``pos-weights-auto`` arm's 3-seed mean at CMA-ES thresholds
   (``experiments/ablations/ablation_summary.csv``, seeds 42/123/999): macro-F1 63.16,
   micro-F1 68.51, and Score 65.84, which is (macro + micro) / 2 exactly as
   ``evaluate.py`` defines it.  **These are not the ``full`` (doc-weights) arm**, whose
   line is 63.06 / 68.36 / 65.71; ``auto`` is the arm the submission run uses because
-  ``--pos-weights`` defaults to ``auto`` (``scripts/run_training.py:310-312``).  The
+  ``--pos-weights`` defaults to ``auto`` (``scripts/run_training.py:319-320``).  The
   ablation protocol is 8 training anchors and the 2026-02-15 validation week
   (``experiments/ablations/RESULTS.md:6``), so no number on this card is from the
   graded test week - nothing can score that week, there is no truth file for it.
@@ -36,12 +36,12 @@ Every string on this card is a real string from this repo, not a mock-up:
 Three things the card leaves out, stated here rather than crowding the card:
 
 * ``--truth`` prints six per-activity ``F1`` lines before the three summary lines
-  (``scripts/evaluate.py:102-103``); the card notes them in one muted shell comment
+  (``scripts/evaluate.py:107-108``); the card notes them in one muted shell comment
   instead of turning the badge into a log dump.
 * a ``--truth`` run also prints its **own** ``Format check`` line, and at this cutoff
   that count would be 5,873 users, not 4,465: ``val_user_ids`` is the cohort subset of
-  the feature view (``scripts/run_training.py:425``, ``mask = is_cohort & present``)
-  and at most 5,873 of the 6,736 cohort users have ``first_seen_at`` before
+  the feature view (``scripts/run_training.py:433``, ``mask = is_cohort & present``)
+  and at most 5,873 of the 9,000 cohort users have ``first_seen_at`` before
   2026-02-15.  The card deliberately shows exactly one Format-check line, under the
   test-list command it belongs to.
 * Long commands wrap with ``\\`` continuations, the way you would type them, so a

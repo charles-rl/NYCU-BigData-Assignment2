@@ -104,7 +104,7 @@ def _load_graph_summary() -> str:
             return f"{total_nodes:,} nodes ({cutoff_date})"
         except Exception:
             pass
-    return "1,070,946 nodes (2026-11-14)"
+    return "2,589,767 nodes (2026-11-14)"
 
 
 # Each badge line is (text, is_code_style)

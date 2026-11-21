@@ -12,8 +12,8 @@ Every dimension quoted here is read off the implementation, not invented:
 
   Users.x = 21 dims ................ src/features/build_graph.py:23-26
       6 activities x (days_since, has_ever, count_7d) + is_bot + is_cohort + user_age_days
-  latent = 128 ..................... scripts/run_training.py:283 (--latent-dim default)
-  z_user = 128 + 21 = 149 .......... src/models/hetero_model.py:152-153
+  latent = 128 ..................... scripts/run_training.py:292 (--latent-dim default)
+  z_user = 128 + 21 = 149 .......... src/models/hetero_model.py:124, 152-153
       combined_dim = latent_dim + self.user_raw_dim
       user_combined = torch.cat([user_gnn_emb, raw_user_features], dim=-1)
   6 heads ......................... src/models/hetero_model.py:127-129 (num_classes=6)
@@ -35,6 +35,7 @@ Run:  python "figures/slide 5/make_text_features_and_residual_fusion.py"
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import matplotlib
 
@@ -190,7 +191,7 @@ def arrow(
 
 
 def segment(
-    ax, pts: list[tuple[float, float]], *, color: str, lw: float = 2.2, ls: str = "-", z: int = 4
+    ax, pts: list[tuple[float, float]], *, color: str, lw: float = 2.2, ls: Any = "-", z: int = 4
 ) -> None:
     """Poly-line used for the identity highway and routed bus lines."""
     ax.add_artist(
@@ -345,8 +346,8 @@ def draw_text_markers(ax) -> None:
     # one spine, one arrow per marker: the fan-out stays orthogonal instead of crossing
     spine_x = 7.2
     badges = [
-        (BLUE, "Conventional Prefix Flag", 'Detected  ":"  and  "()"'),
-        (AMBER, "Markdown Template Flag", 'Detected  "#"  and  "`"'),
+        (BLUE, "Conventional Prefix Flag", 'Detected  ":"  with optional "()" or "!"'),
+        (AMBER, "Markdown Template Flag", 'Detected  heading "#"  and  code "`"'),
         (TEAL, "Hierarchy Slash Depth", 'Branch & File Path slashes  "/"'),
     ]
     b_x0, b_x1, bh, gap = 11.2, 53.4, 9.2, 2.4
@@ -650,9 +651,19 @@ def draw_residual_fusion(ax) -> None:
     label(
         ax,
         (h_x0 + h_x1) / 2 + 0.5,
-        h_y0 + 2.6,
-        "open_pr · issue · comment · review · push",
-        size=7.0,
+        h_y0 + 2.9,
+        "open_pr · open_issue · issue_comment",
+        size=6.6,
+        color=BODY,
+        ha="center",
+        max_units=h_x1 - h_x0 - 4.4,
+    )
+    label(
+        ax,
+        (h_x0 + h_x1) / 2 + 0.5,
+        h_y0 + 1.4,
+        "pr_review · pr_review_comment · push",
+        size=6.6,
         color=BODY,
         ha="center",
         max_units=h_x1 - h_x0 - 4.4,
@@ -662,7 +673,7 @@ def draw_residual_fusion(ax) -> None:
         ax,
         x0 + 2.0,
         3.5,
-        "hetero_model.py — combined_dim :152 · torch.cat([user_gnn_emb, raw_user_features]) :153",
+        "hetero_model.py — combined_dim :124 · torch.cat([user_gnn_emb, raw_user_features]) :153",
         size=6.6,
         color=MUTED,
         va="bottom",

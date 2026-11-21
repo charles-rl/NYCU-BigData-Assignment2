@@ -258,6 +258,6 @@
       "999": 65.7
     },
     "full_sd": 0.0863,
-    "rule": "treat any delta below ~0.2 as seed noise (experiments/ablations/RESULTS.md:83-84)"
+    "rule": "treat any delta below ~0.2 as seed noise (experiments/ablations/RESULTS.md:81-82)"
   }
 }

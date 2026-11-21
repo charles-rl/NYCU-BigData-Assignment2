@@ -92,7 +92,7 @@
   "ratio_range": {
     "min": 1.55,
     "max": 2.55,
-    "median": 2.53
+    "median": 2.315
   },
   "cmaes_reference": {
     "doc_mean_pct": 65.7138,

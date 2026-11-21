@@ -2,7 +2,7 @@
 """Slide 3 figure: corpus data-quality audit timeline (publication figure).
 
 Produces ``figures/slide 3/corpus_data_quality_audit.png`` — a horizontal three-track
-timeline of the GH Archive corpus (2025-12-01 .. 2026-11-20):
+timeline of the GH Archive corpus (2025-12-01 .. 2026-11-21):
 
   track 1  hourly sanity rate as a colour-coded status bar,
   track 2  the model windows actually selected,
@@ -80,7 +80,7 @@ BR_Y, BR_TICK = 0.36, 0.10  # track-2 bracket baseline and arm height
 
 # (start, end, fill, edge, hatch, short caption, caption date, ha, caption y in AX_T units)
 PHASES = [
-    ("2025-12-01", "2026-03-14", GREEN, GREEN_EDGE, None, "CONTIGUOUS  ·  98.4%", None, None, 0.795),
+    ("2025-12-01", "2026-03-14", GREEN, GREEN_EDGE, None, "CONTIGUOUS  ·  {rate:.1f}%", None, None, 0.795),
     ("2026-03-15", "2026-10-26", ORANGE, ORANGE_EDGE, "///", "INTERMITTENT DROPOUTS", None, None, 0.795),
     ("2026-10-27", "2026-11-08", RED, RED_EDGE, None, "OUTAGE", "2026-10-21", "right", 0.945),
     ("2026-11-09", "2026-11-20", YELLOW, YELLOW_EDGE, None, "INCOMPLETE", "2026-12-06", "right", 0.600),
@@ -177,7 +177,15 @@ def build() -> Figure:
         ax.axvspan(ts("2026-02-15"), ts("2026-02-22"), color=BLUE, alpha=0.17, lw=0, zorder=2)
 
     # -------------------------------------------------------------- track 1: sanity --
+    hours = int(daily["hours"].to_numpy().sum())
+    n_days = int(daily.index.nunique())
+    first_day = pd.Timestamp(str(daily.index.min()))
+    last_day = pd.Timestamp(str(daily.index.max()))
+
     for a, b, colour, edge, hatch, caption, cap_x, cap_ha, cap_y in PHASES:
+        if "{rate" in caption:  # the % is the phase's own all-six hourly sanity rate
+            seg = daily.loc[pd.Timestamp(a) : pd.Timestamp(b)]
+            caption = caption.format(rate=seg["hours_ok"].sum() / seg["hours"].sum() * 100.0)
         axT.barh(
             BAR_Y,
             width=ts(b) + 1 - ts(a),
@@ -299,7 +307,7 @@ def build() -> Figure:
     fig.text(
         L,
         0.975,
-        "GH Archive 343-Day Corpus Audit: Data Sanity & Validation Window Selection",
+        f"GH Archive {n_days}-Day Corpus Audit: Data Sanity & Validation Window Selection",
         fontsize=15,
         fontweight="bold",
         color=INK,
@@ -308,7 +316,9 @@ def build() -> Figure:
     fig.text(
         L,
         0.930,
-        "December 1, 2025 – November 20, 2026  ·  8,232 hourly files analyzed",
+        f"{first_day.strftime('%B')} {first_day.day}, {first_day.year} – "
+        f"{last_day.strftime('%B')} {last_day.day}, {last_day.year}  ·  "
+        f"{hours:,} hourly files analyzed",
         fontsize=10.5,
         color=MUTED,
         va="top",

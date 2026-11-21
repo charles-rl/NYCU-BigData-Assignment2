@@ -3,9 +3,9 @@
 The slide 10 pipeline diagram claims "8 Entity Nodes" and "26 Directed Edges
 (13 FK + 13 rev_*)". This probe does not re-implement anything: it imports the
 repo's own pipeline (`load_tables` -> `mask_future_leakage` ->
-`build_hetero_graph`) at the submission run's cutoff and dumps the resulting
-PyTorch Geometric metadata, so the numbers printed on the slide are read off the
-real graph rather than off a docstring.
+`build_hetero_graph`) at the submission run's last training anchor and dumps the
+resulting PyTorch Geometric metadata, so the numbers printed on the slide are
+read off the real graph rather than off a docstring.
 
 Nothing under src/ is modified; the only output is `graph_metadata.json` in this
 folder.
@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd  # pyright: ignore[reportMissingImports]  # pyrightconfig.json venvPath is stale on this box; pandas resolves and runs in env bda_asg2
 
@@ -32,16 +32,17 @@ from src.data.split_io import DEFAULT_DB, load_tables  # noqa: E402
 from src.data.temporal_split import mask_future_leakage  # noqa: E402
 from src.features.build_graph import build_hetero_graph  # noqa: E402
 
-# The submission run's test cutoff (docs/FINAL_RUN.md): the feature view is every
-# row strictly before it, so this is the graph the final model actually saw.
+# The submission run's last legal training anchor (docs/FINAL_RUN.md): the feature
+# view is every row strictly before it.  The graded-week graph is built at the later
+# test cutoff 2026-11-21 16:00, which the corpus covers only up to 05:49 UTC.
 CUTOFF = pd.Timestamp("2026-11-14 00:00:00")
 OUT = HERE / "graph_metadata.json"
 
 
 def main() -> None:
     tables = load_tables(DEFAULT_DB)
-    features = mask_future_leakage(tables, CUTOFF)
-    graph = build_hetero_graph(features, CUTOFF)
+    features = mask_future_leakage(tables, cast(pd.Timestamp, CUTOFF))
+    graph = build_hetero_graph(features, cast(pd.Timestamp, CUTOFF))
 
     node_rows = {nt: int(graph[nt].num_nodes) for nt in graph.node_types}
     node_dims = {nt: int(graph[nt].x.shape[1]) for nt in graph.node_types}

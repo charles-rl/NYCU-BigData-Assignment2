@@ -13,7 +13,7 @@ the slide's shape and its 0.0-0.7 y-axis): axis "same" (days since the last
 event of the same activity), target "open_issue", 95,314 cohort user-anchor
 pairs over 73 daily anchors. Its decay fit starts at 0.587 and floors at 0.144;
 the 7-day sinusoid explains 2.0% of the variance, far below the assignment's
-cycle gate of 0.40 (`src/data/activity_decay_analysis.py:294`).
+cycle gate of 0.40 (`src/data/activity_decay_analysis.py:292`).
 
 Run from the repo root:
     /train-data-5-hdd/charles/miniconda3/envs/bda_asg2/bin/python \

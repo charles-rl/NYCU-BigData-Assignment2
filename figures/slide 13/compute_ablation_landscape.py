@@ -26,7 +26,7 @@ same baseline:
   test.  No 2x2 of decay x calibration was ever run.
 
 Noise floor, from the grid itself: ``full`` alone scores 65.63 / 65.80 / 65.70
-across seeds (sd 0.07).  ``experiments/ablations/RESULTS.md:83-84`` says to treat
+across seeds (sd 0.07).  ``experiments/ablations/RESULTS.md:81-82`` says to treat
 any delta below ~0.2 as seed noise, so the chart also carries each bar's per-seed
 spread and every pair's delta.
 
@@ -139,7 +139,7 @@ def protocol_of(rows: dict[str, list[dict[str, str]]]) -> dict[str, object]:
 
 
 def wins(base: Arm, arm: Arm) -> int:
-    """Per-seed wins of `arm` over `base`, the tie-breaker RESULTS.md:83-84 uses."""
+    """Per-seed wins of `arm` over `base`, the tie-breaker RESULTS.md:81-82 uses."""
     return sum(1 for seed, value in arm.per_seed.items() if value > base.per_seed.get(seed, -1))
 
 
@@ -190,7 +190,7 @@ def main() -> int:
         "noise_floor": {
             "full_per_seed": base_full.per_seed,
             "full_sd": base_full.score_cmaes_sd,
-            "rule": "treat any delta below ~0.2 as seed noise (experiments/ablations/RESULTS.md:83-84)",
+            "rule": "treat any delta below ~0.2 as seed noise (experiments/ablations/RESULTS.md:81-82)",
         },
     }
     OUT.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

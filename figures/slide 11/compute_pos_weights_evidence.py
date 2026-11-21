@@ -15,7 +15,7 @@ Sources (read-only; this script never writes outside ``figures/slide 11/``):
   ``doc constants | auto (this run) | doc ÷ auto``, which is what says how badly
   the static weights are inflated.
 * ``scripts/run_training.py:90`` ``DOC_POS_WEIGHTS`` and
-  ``scripts/run_training.py:553-600`` ``resolve_pos_weights``, whose docstring
+  ``scripts/run_training.py:562-625`` ``resolve_pos_weights``, whose docstring
   states the auto rule ``(N_observed - N_pos) / N_pos``.
 * ``src/utils/metrics.py:159`` -- ``score = (macro_f1 + micro_f1) / 2``, the
   definition of the y axis ("Score @ 0.5 Threshold").
@@ -31,7 +31,7 @@ import csv
 import json
 import re
 from pathlib import Path
-from statistics import mean, stdev
+from statistics import mean, median, stdev
 
 HERE = Path(__file__).resolve().parent  # figures/slide 11
 REPO = HERE.parent.parent  # project root
@@ -157,7 +157,7 @@ def main() -> None:
         "ratio_range": {
             "min": min(ratio_values),
             "max": max(ratio_values),
-            "median": round(sorted(ratio_values)[len(ratio_values) // 2], 3),
+            "median": round(median(ratio_values), 3),
         },
     }
     cma_doc, cma_auto = scores.get(DOC_ARM + "@cmaes"), scores.get(AUTO_ARM + "@cmaes")
