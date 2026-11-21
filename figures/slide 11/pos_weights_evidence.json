@@ -1,0 +1,103 @@
+{
+  "source_csv": "experiments/ablations/ablation_summary.csv",
+  "source_md": "experiments/ablations/RESULTS.md",
+  "score_definition": "score = (macro_f1 + micro_f1) / 2 (src/utils/metrics.py:159)",
+  "protocol": {
+    "val_cutoff": null,
+    "n_train_anchors": null,
+    "epochs": null,
+    "device": null
+  },
+  "doc_arm": {
+    "variant": "full",
+    "pos_weights": "doc",
+    "seeds": [
+      "42",
+      "123",
+      "999"
+    ],
+    "values_pct": [
+      57.2029,
+      57.5228,
+      57.1065
+    ],
+    "mean_pct": 57.2774,
+    "sd_pct": 0.2179,
+    "n_seeds": 3
+  },
+  "auto_arm": {
+    "variant": "pos-weights-auto",
+    "pos_weights": "auto",
+    "seeds": [
+      "42",
+      "123",
+      "999"
+    ],
+    "values_pct": [
+      60.6715,
+      62.2362,
+      61.7033
+    ],
+    "mean_pct": 61.537,
+    "sd_pct": 0.7955,
+    "n_seeds": 3
+  },
+  "delta_at_0_5": {
+    "seeds": [
+      "42",
+      "123",
+      "999"
+    ],
+    "delta_pts": [
+      3.4686,
+      4.7134,
+      4.5968
+    ],
+    "mean_delta_pts": 4.2596,
+    "wins": 3,
+    "n_seeds": 3
+  },
+  "doc_over_auto_ratios": {
+    "open_pr": {
+      "doc_weight": 7.28,
+      "auto_weight": 3.46,
+      "doc_over_auto": 2.1
+    },
+    "open_issue": {
+      "doc_weight": 18.08,
+      "auto_weight": 9.05,
+      "doc_over_auto": 2.0
+    },
+    "issue_comment": {
+      "doc_weight": 11.05,
+      "auto_weight": 4.37,
+      "doc_over_auto": 2.53
+    },
+    "pr_review": {
+      "doc_weight": 12.83,
+      "auto_weight": 5.04,
+      "doc_over_auto": 2.55
+    },
+    "pr_review_comment": {
+      "doc_weight": 19.29,
+      "auto_weight": 7.56,
+      "doc_over_auto": 2.55
+    },
+    "push": {
+      "doc_weight": 1.32,
+      "auto_weight": 0.85,
+      "doc_over_auto": 1.55
+    }
+  },
+  "ratio_range": {
+    "min": 1.55,
+    "max": 2.55,
+    "median": 2.53
+  },
+  "cmaes_reference": {
+    "doc_mean_pct": 65.7138,
+    "auto_mean_pct": 65.8361,
+    "delta_at_cmaes_pts": 0.1223,
+    "note": "the tuned-score gain, for contrast with the @0.5 gain; RESULTS.md calls anything under ~0.2 seed noise"
+  }
+}

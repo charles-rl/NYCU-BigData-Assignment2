@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Corpus data-quality audit timeline (publication figure).
+"""Slide 3 figure: corpus data-quality audit timeline (publication figure).
 
-Produces ``figures/corpus_data_quality_audit.png`` — a horizontal three-track timeline of
-the GH Archive corpus (2025-12-01 .. 2026-11-20):
+Produces ``figures/slide 3/corpus_data_quality_audit.png`` — a horizontal three-track
+timeline of the GH Archive corpus (2025-12-01 .. 2026-11-20):
 
   track 1  hourly sanity rate as a colour-coded status bar,
   track 2  the model windows actually selected,
@@ -14,8 +14,11 @@ from the audit output ``raw_data/coverage.csv`` (written by ``scripts/verify_raw
 a per-day extract is cached beside this script as ``corpus_daily_audit.csv`` so the figure
 can be rebuilt without the 216 GB raw corpus on hand.
 
-Run:            python figures/make_corpus_audit_figure.py
-Layout audit:   python figures/check_layout.py
+Nothing sits below the tracks except the shared date axis: the metric callout boxes that
+used to fill the bottom band are gone, so the figure height stops at the month labels.
+
+Run:            python "figures/slide 3/make_corpus_audit_figure.py"
+Layout audit:   python "figures/slide 3/check_layout.py"
 """
 
 from __future__ import annotations
@@ -25,13 +28,11 @@ from pathlib import Path
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
+import pandas as pd  # pyright: ignore[reportMissingImports]  # pyrightconfig.json venvPath is stale on this box; pandas resolves and runs in env bda_asg2
 from matplotlib.figure import Figure
-from matplotlib.lines import Line2D
-from matplotlib.patches import FancyBboxPatch
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parent
+HERE = Path(__file__).resolve().parent  # figures/slide 3
+REPO = HERE.parent.parent
 CACHE = HERE / "corpus_daily_audit.csv"
 OUT = HERE / "corpus_data_quality_audit.png"
 
@@ -65,14 +66,14 @@ PURPLE = "#7b4fa6"  # official test week
 
 # --------------------------------------------------------------------------- geometry --
 
-FIG_W, FIG_H, DPI = 14.0, 6.0, 300
+FIG_W, FIG_H, DPI = 14.0, 5.1, 300
 L, R = 0.070, 0.958  # left / right edge of every track
 
 X0, X1 = "2025-11-27", "2026-12-06"  # x-axis padding around the corpus
 
-AX_T = (L, 0.600, R - L, 0.300)  # tracks 1 + 2
-AX_D = (L, 0.300, R - L, 0.265)  # track 3
-AX_B = (L, 0.248, R - L, 0.052)  # shared date axis
+AX_T = (L, 0.556, R - L, 0.330)  # tracks 1 + 2
+AX_D = (L, 0.168, R - L, 0.340)  # track 3
+AX_B = (L, 0.112, R - L, 0.056)  # shared date axis: the only element below the tracks
 
 BAR_Y, BAR_H = 0.795, 0.19  # track-1 status bar, in AX_T y-units (0..1)
 BR_Y, BR_TICK = 0.36, 0.10  # track-2 bracket baseline and arm height
@@ -313,74 +314,14 @@ def build() -> Figure:
         va="top",
     )
 
-    # ------------------------------------------------------- metric callout boxes ---
-    boxes = [
-        ("CORPUS SCALE", "8,232 hours · 215 GB\nonly 61.4% hours sane on all 6 activities", SLATE),
-        ("VALIDATION CHOICE", "Feb 15 – 22, 2026\n0% missing hours · zero look-ahead leakage", BLUE),
-        ("DISTORTION WARNING", "push prevalence 3.14% at late-Oct cutoffs\ntrue baseline: 43.17%", RED),
-    ]
-    bx0, gap, by0, bh = L, 0.0115, 0.072, 0.108
-    bw = (R - L - 2 * gap) / 3  # the three callouts span exactly the tracks' width
-    for i, (head, body, colour) in enumerate(boxes):
-        x = bx0 + i * (bw + gap)
-        fig.patches.append(
-            FancyBboxPatch(
-                (x, by0),
-                bw,
-                bh,
-                transform=fig.transFigure,
-                boxstyle="round,pad=0.002,rounding_size=0.005",
-                facecolor="#f5f7fa",
-                edgecolor="#ccd4dd",
-                linewidth=0.7,
-                mutation_aspect=0.3,
-                zorder=5,
-            )
-        )
-        fig.add_artist(
-            Line2D(
-                [x, x],
-                [by0, by0 + bh],
-                transform=fig.transFigure,
-                color=colour,
-                lw=2.6,
-                zorder=6,
-            )
-        )
-        fig.text(
-            x + 0.010,
-            by0 + bh - 0.016,
-            head,
-            fontsize=7.0,
-            color=colour,
-            fontweight="bold",
-            va="top",
-        )
-        fig.text(
-            x + 0.010,
-            by0 + bh - 0.038,
-            body,
-            fontsize=7.8,
-            color=INK,
-            va="top",
-            linespacing=1.7,
-        )
-
+    # ------------------------------------------------------------- provenance line --
+    # the date axis above is the last element in the figure: no callout boxes below it
     fig.text(
         L,
-        0.026,
+        0.030,
         "audit: scripts/verify_raw_data.py  ·  window rules: docs/VALIDATION_DATA.md",
         fontsize=6.8,
         color=MUTED,
-        va="bottom",
-    )
-    fig.text(
-        R,
-        0.026,
-        "figures/make_corpus_audit_figure.py",
-        fontsize=6.8,
-        color=MUTED,
-        ha="right",
         va="bottom",
     )
     return fig

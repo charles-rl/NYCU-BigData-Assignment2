@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Layout audit for corpus_data_quality_audit.png.
+"""Layout audit for corpus_data_quality_audit.png (the slide 3 figure).
 
 This session cannot view images, so the figure is verified geometrically instead:
 every Text artist is measured through the Agg renderer and checked for
@@ -9,7 +9,7 @@ every Text artist is measured through the Agg renderer and checked for
   c. spilling outside the bar/band it is supposed to sit in,
   d. colliding with the density curves it annotates.
 
-Run:  python figures/check_layout.py
+Run:  python "figures/slide 3/check_layout.py"
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import pandas as pd
+import pandas as pd  # pyright: ignore[reportMissingImports]  # pyrightconfig.json venvPath is stale on this box; pandas resolves and runs in env bda_asg2
 from matplotlib.backend_bases import RendererBase
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.text import Annotation, Text

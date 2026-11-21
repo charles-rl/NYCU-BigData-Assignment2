@@ -1,0 +1,523 @@
+{
+  "anchors": {
+    "first": "2026-01-01",
+    "last": "2026-03-14",
+    "count": 73,
+    "horizon_days": 7,
+    "max_delta_days": 30,
+    "min_support": 20,
+    "smooth_alpha": 0.5,
+    "tail_window_days": [
+      20,
+      30
+    ],
+    "cohort_users": 6736,
+    "corpus_latest_event": "2026-03-21 23:59:55",
+    "pairs_dt_beyond_max": {
+      "any/any": 54900,
+      "any/open_pr": 54900,
+      "any/open_issue": 54900,
+      "any/issue_comment": 54900,
+      "any/pr_review": 54900,
+      "any/pr_review_comment": 54900,
+      "any/push": 54900
+    }
+  },
+  "repo_period_r2_gate": 0.4,
+  "series": [
+    {
+      "axis": "any",
+      "target": "any",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 355636,
+      "p_dt0": 0.9166961052724543,
+      "p_dt7": 0.488598110544033,
+      "tail_mean": 0.24447702550874445,
+      "decay": {
+        "floor": 0.20324271031282237,
+        "amp": 0.6839954253311203,
+        "tau_days": 9.073281572277672,
+        "half_life_days": 6.289119540250776,
+        "r2": 0.9935020701187649
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.41250882527487426,
+        "amplitude": 0.03678349311296402,
+        "phase_rad": -1.4422327932676817,
+        "r2": 0.01915231185413524
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.25,
+        "mean": 0.4138230655926899,
+        "amplitude": 0.08049550967888341,
+        "phase_rad": -0.98094266000267,
+        "r2": 0.09587986190782272
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 12.0,
+        "mean": -0.0007634883277300512,
+        "amplitude": 0.009514694367891104,
+        "phase_rad": -0.4108405808222506,
+        "r2": 0.1984309306716271
+      }
+    },
+    {
+      "axis": "any",
+      "target": "open_pr",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 355636,
+      "p_dt0": 0.42835379316435573,
+      "p_dt7": 0.12438918449343034,
+      "tail_mean": 0.04676651893389901,
+      "decay": {
+        "floor": 0.05501699837630283,
+        "amp": 0.3371869043045535,
+        "tau_days": 4.539930271598807,
+        "half_life_days": 3.1468398676974596,
+        "r2": 0.9731700843782541
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.1106863789867727,
+        "amplitude": 0.02139854068784641,
+        "phase_rad": -0.9823356688222178,
+        "r2": 0.030498998037551406
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.5,
+        "mean": 0.11204134300493605,
+        "amplitude": 0.040533216869486265,
+        "phase_rad": -0.6976214634057064,
+        "r2": 0.1126694942230616
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 12.0,
+        "mean": 0.0003011258946463228,
+        "amplitude": 0.005763470393806273,
+        "phase_rad": 0.6795199431140904,
+        "r2": 0.08082482213085052
+      }
+    },
+    {
+      "axis": "any",
+      "target": "open_issue",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 355636,
+      "p_dt0": 0.19414024551797227,
+      "p_dt7": 0.051742860245412095,
+      "tail_mean": 0.019899979891774215,
+      "decay": {
+        "floor": 0.025318607768361128,
+        "amp": 0.15019164905717142,
+        "tau_days": 3.7876524251015478,
+        "half_life_days": 2.625400599400177,
+        "r2": 0.9621359521436536
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.0463757290466926,
+        "amplitude": 0.009411687564032215,
+        "phase_rad": -0.891904763211784,
+        "r2": 0.03179156869626676
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.25,
+        "mean": 0.04704145731967799,
+        "amplitude": 0.016689101272033234,
+        "phase_rad": -0.6565099112390949,
+        "r2": 0.09978164963127434
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 11.25,
+        "mean": 0.00032879438635287193,
+        "amplitude": 0.003149008893222433,
+        "phase_rad": 1.404401029364847,
+        "r2": 0.08514920485678701
+      }
+    },
+    {
+      "axis": "any",
+      "target": "issue_comment",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 355636,
+      "p_dt0": 0.3560761282345668,
+      "p_dt7": 0.08931480073840808,
+      "tail_mean": 0.03216282574457448,
+      "decay": {
+        "floor": 0.042743035300618695,
+        "amp": 0.28636656411754546,
+        "tau_days": 3.8585807283915323,
+        "half_life_days": 2.6745643528475305,
+        "r2": 0.9669683781305625
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.0835342814954668,
+        "amplitude": 0.018968555839313707,
+        "phase_rad": -0.9445602030247466,
+        "r2": 0.035309130185248505
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.5,
+        "mean": 0.08478485559383149,
+        "amplitude": 0.03376611422588363,
+        "phase_rad": -0.6723011323928966,
+        "r2": 0.11484665996803112
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 8.25,
+        "mean": 0.0002553519635736497,
+        "amplitude": 0.0038788887409762674,
+        "phase_rad": 0.891336663246777,
+        "r2": 0.04307916082365992
+      }
+    },
+    {
+      "axis": "any",
+      "target": "pr_review",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 355636,
+      "p_dt0": 0.31658129470988255,
+      "p_dt7": 0.07313497665327397,
+      "tail_mean": 0.027948727266247187,
+      "decay": {
+        "floor": 0.037230183141034684,
+        "amp": 0.26885469159762654,
+        "tau_days": 3.867519281027856,
+        "half_life_days": 2.680760085405685,
+        "r2": 0.9722470871036415
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.07566056502719178,
+        "amplitude": 0.018777477846358793,
+        "phase_rad": -1.115120925236192,
+        "r2": 0.03897320459929754
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.25,
+        "mean": 0.07671842620519505,
+        "amplitude": 0.03261997870582924,
+        "phase_rad": -0.8243326531181671,
+        "r2": 0.11972799688198332
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 2.75,
+        "mean": 2.302357665847071e-05,
+        "amplitude": 0.002684727561717709,
+        "phase_rad": 0.837489646994554,
+        "r2": 0.02829110879312291
+      }
+    },
+    {
+      "axis": "any",
+      "target": "pr_review_comment",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 355636,
+      "p_dt0": 0.23439459507197738,
+      "p_dt7": 0.04555326311217287,
+      "tail_mean": 0.015260367214477063,
+      "decay": {
+        "floor": 0.022608240024781,
+        "amp": 0.20450889232342537,
+        "tau_days": 3.459566708459531,
+        "half_life_days": 2.3979889099277742,
+        "r2": 0.9723160503401673
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.049046294992440155,
+        "amplitude": 0.014484525281662794,
+        "phase_rad": -1.0580184674487456,
+        "r2": 0.042229985310622165
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.25,
+        "mean": 0.049915384320310646,
+        "amplitude": 0.02458578756676838,
+        "phase_rad": -0.7802804409625217,
+        "r2": 0.12322232235669506
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 2.5,
+        "mean": 9.603835894573533e-13,
+        "amplitude": 0.0020386418358490925,
+        "phase_rad": 0.5507046231153188,
+        "r2": 0.029933900159276994
+      }
+    },
+    {
+      "axis": "any",
+      "target": "push",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 355636,
+      "p_dt0": 0.8762033030115693,
+      "p_dt7": 0.4307199478770768,
+      "tail_mean": 0.21530657426676805,
+      "decay": {
+        "floor": 0.1925631289529832,
+        "amp": 0.6492687542692355,
+        "tau_days": 7.782252679614347,
+        "half_life_days": 5.3942465032797635,
+        "r2": 0.9927193337070599
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.3668666301368917,
+        "amplitude": 0.03708587749909317,
+        "phase_rad": -1.3545441129444893,
+        "r2": 0.02166433215441521
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.25,
+        "mean": 0.3684113069290358,
+        "amplitude": 0.07900403399217984,
+        "phase_rad": -0.9488119083321225,
+        "r2": 0.10209845083863689
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 12.0,
+        "mean": -0.0005200003310019209,
+        "amplitude": 0.011228775565279469,
+        "phase_rad": -0.10601231310487531,
+        "r2": 0.2750975079689809
+      }
+    },
+    {
+      "axis": "same",
+      "target": "open_pr",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 180206,
+      "p_dt0": 0.7031499284107179,
+      "p_dt7": 0.3814335562663565,
+      "tail_mean": 0.19513773670270004,
+      "decay": {
+        "floor": 0.16336428837896455,
+        "amp": 0.4943994644461094,
+        "tau_days": 9.166744855841985,
+        "half_life_days": 6.3539033517392545,
+        "r2": 0.9891154454537183
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.3158366183221885,
+        "amplitude": 0.02518650383888458,
+        "phase_rad": -1.3481386645086224,
+        "r2": 0.017245358986058057
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.25,
+        "mean": 0.31700446704022583,
+        "amplitude": 0.06060586626274425,
+        "phase_rad": -0.8852888157964092,
+        "r2": 0.10356680842628829
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 11.5,
+        "mean": 0.0007036588863863702,
+        "amplitude": 0.011285653370500222,
+        "phase_rad": 0.4968959048796853,
+        "r2": 0.32508929221814076
+      }
+    },
+    {
+      "axis": "same",
+      "target": "open_issue",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 95314,
+      "p_dt0": 0.6237221613727638,
+      "p_dt7": 0.28672787979966613,
+      "tail_mean": 0.14894381594212397,
+      "decay": {
+        "floor": 0.1438162172276572,
+        "amp": 0.44328108880877287,
+        "tau_days": 6.346518354560268,
+        "half_life_days": 4.399071303835393,
+        "r2": 0.9877888400193362
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.24320032848610618,
+        "amplitude": 0.024140998723145686,
+        "phase_rad": -1.1825252191936297,
+        "r2": 0.020366679874242677
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.5,
+        "mean": 0.24439508994388165,
+        "amplitude": 0.05400218933272002,
+        "phase_rad": -0.7783053436003448,
+        "r2": 0.10657609674644208
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 11.75,
+        "mean": 0.0006615524660341796,
+        "amplitude": 0.008981272661446563,
+        "phase_rad": 0.7338750971312736,
+        "r2": 0.22975415593818582
+      }
+    },
+    {
+      "axis": "same",
+      "target": "issue_comment",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 139191,
+      "p_dt0": 0.7356656710571414,
+      "p_dt7": 0.3913337193591971,
+      "tail_mean": 0.19919559893474192,
+      "decay": {
+        "floor": 0.17354374906467554,
+        "amp": 0.5235782029835035,
+        "tau_days": 8.40797138297934,
+        "half_life_days": 5.827961658340834,
+        "r2": 0.9934002545972739
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.32363015774664594,
+        "amplitude": 0.02859494148565544,
+        "phase_rad": -1.2756778885420894,
+        "r2": 0.01991647794102125
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.25,
+        "mean": 0.3249106457347493,
+        "amplitude": 0.059904084374848274,
+        "phase_rad": -0.9564874724708362,
+        "r2": 0.09023573893351133
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 12.0,
+        "mean": -9.371884047898364e-05,
+        "amplitude": 0.006238806735118763,
+        "phase_rad": 0.1448945284102629,
+        "r2": 0.14456287698421177
+      }
+    },
+    {
+      "axis": "same",
+      "target": "pr_review",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 114693,
+      "p_dt0": 0.7689942789926749,
+      "p_dt7": 0.43218475073313783,
+      "tail_mean": 0.24414866698056364,
+      "decay": {
+        "floor": 0.22017613369945419,
+        "amp": 0.5326357938633866,
+        "tau_days": 8.192615228340143,
+        "half_life_days": 5.678688146936443,
+        "r2": 0.9948735283878682
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.3698493899272386,
+        "amplitude": 0.026784750248238894,
+        "phase_rad": -1.4468976059935699,
+        "r2": 0.016693873438924367
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.25,
+        "mean": 0.3708864181908759,
+        "amplitude": 0.061407077368222145,
+        "phase_rad": -0.9273447188637757,
+        "r2": 0.09171483413360393
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 6.5,
+        "mean": 0.00034497530271809004,
+        "amplitude": 0.005249086896879701,
+        "phase_rad": 1.491004084433588,
+        "r2": 0.12326666519313245
+      }
+    },
+    {
+      "axis": "same",
+      "target": "pr_review_comment",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 89480,
+      "p_dt0": 0.7069580361585669,
+      "p_dt7": 0.393645584725537,
+      "tail_mean": 0.22551911480990325,
+      "decay": {
+        "floor": 0.19980100626916292,
+        "amp": 0.474808230900846,
+        "tau_days": 8.540646122849601,
+        "half_life_days": 5.919924780213429,
+        "r2": 0.9930973650839034
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.33778432348692644,
+        "amplitude": 0.025151370225059158,
+        "phase_rad": -1.3088420602656656,
+        "r2": 0.018691047389404858
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.25,
+        "mean": 0.33890024805326746,
+        "amplitude": 0.05726178958835729,
+        "phase_rad": -0.9438846744219652,
+        "r2": 0.10025804535214111
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 11.75,
+        "mean": 0.0001419629650826236,
+        "amplitude": 0.007665444574353097,
+        "phase_rad": 0.24967834518983836,
+        "r2": 0.2588991393703237
+      }
+    },
+    {
+      "axis": "same",
+      "target": "push",
+      "supported_bins": 30,
+      "max_supported_dt": 29,
+      "total_pairs": 340222,
+      "p_dt0": 0.8983413451576809,
+      "p_dt7": 0.48127360469995806,
+      "tail_mean": 0.25104479991063966,
+      "decay": {
+        "floor": 0.2157825442073207,
+        "amp": 0.65411510482958,
+        "tau_days": 8.6723163977401,
+        "half_life_days": 6.011191660017332,
+        "r2": 0.9949654927832636
+      },
+      "sinusoid_7d_on_curve": {
+        "period_days": 7.0,
+        "mean": 0.4084967415536404,
+        "amplitude": 0.03490446426413795,
+        "phase_rad": -1.4158971683171193,
+        "r2": 0.018863672504311313
+      },
+      "sinusoid_best_on_curve": {
+        "period_days": 10.25,
+        "mean": 0.40980141828264033,
+        "amplitude": 0.07759794889864274,
+        "phase_rad": -0.9757757891624231,
+        "r2": 0.09727536756934851
+      },
+      "sinusoid_best_on_detrended_residual": {
+        "period_days": 12.0,
+        "mean": -0.0005352370670228512,
+        "amplitude": 0.00907460645785573,
+        "phase_rad": -0.21390953850129915,
+        "r2": 0.2558712019453654
+      }
+    }
+  ]
+}

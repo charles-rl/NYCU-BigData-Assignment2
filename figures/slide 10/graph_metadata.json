@@ -1,0 +1,232 @@
+{
+  "cutoff": "2026-11-14 00:00:00",
+  "db": "processed_tables/db",
+  "tables_loaded": [
+    "IssueComments",
+    "Issues",
+    "PRReviewComments",
+    "PRReviews",
+    "PullRequests",
+    "Pushes",
+    "Repositories",
+    "Users"
+  ],
+  "rows_visible_at_cutoff": {
+    "IssueComments": 61284,
+    "Issues": 89028,
+    "PRReviewComments": 40396,
+    "PRReviews": 55438,
+    "PullRequests": 154238,
+    "Pushes": 590542,
+    "Repositories": 49790,
+    "Users": 30230
+  },
+  "num_node_types": 8,
+  "num_edge_types": 26,
+  "node_types": {
+    "Users": 30230,
+    "Repositories": 49790,
+    "PullRequests": 154238,
+    "Issues": 89028,
+    "IssueComments": 61284,
+    "PRReviews": 55438,
+    "PRReviewComments": 40396,
+    "Pushes": 590542
+  },
+  "node_feature_dims": {
+    "Users": 21,
+    "Repositories": 2,
+    "PullRequests": 4,
+    "Issues": 6,
+    "IssueComments": 2,
+    "PRReviews": 3,
+    "PRReviewComments": 3,
+    "Pushes": 1
+  },
+  "forward_relations": [
+    {
+      "src": "Repositories",
+      "relation": "owner",
+      "dst": "Users",
+      "edges": 28453,
+      "reverse": false
+    },
+    {
+      "src": "PullRequests",
+      "relation": "authored_by",
+      "dst": "Users",
+      "edges": 70624,
+      "reverse": false
+    },
+    {
+      "src": "PullRequests",
+      "relation": "belongs_to",
+      "dst": "Repositories",
+      "edges": 154238,
+      "reverse": false
+    },
+    {
+      "src": "Issues",
+      "relation": "authored_by",
+      "dst": "Users",
+      "edges": 89028,
+      "reverse": false
+    },
+    {
+      "src": "Issues",
+      "relation": "belongs_to",
+      "dst": "Repositories",
+      "edges": 89028,
+      "reverse": false
+    },
+    {
+      "src": "IssueComments",
+      "relation": "authored_by",
+      "dst": "Users",
+      "edges": 61284,
+      "reverse": false
+    },
+    {
+      "src": "IssueComments",
+      "relation": "comment_on",
+      "dst": "Issues",
+      "edges": 61284,
+      "reverse": false
+    },
+    {
+      "src": "PRReviews",
+      "relation": "reviewed_by",
+      "dst": "Users",
+      "edges": 55438,
+      "reverse": false
+    },
+    {
+      "src": "PRReviews",
+      "relation": "review_of",
+      "dst": "PullRequests",
+      "edges": 55438,
+      "reverse": false
+    },
+    {
+      "src": "PRReviewComments",
+      "relation": "authored_by",
+      "dst": "Users",
+      "edges": 40396,
+      "reverse": false
+    },
+    {
+      "src": "PRReviewComments",
+      "relation": "comment_on",
+      "dst": "PullRequests",
+      "edges": 40396,
+      "reverse": false
+    },
+    {
+      "src": "Pushes",
+      "relation": "pushed_by",
+      "dst": "Users",
+      "edges": 590542,
+      "reverse": false
+    },
+    {
+      "src": "Pushes",
+      "relation": "pushed_to",
+      "dst": "Repositories",
+      "edges": 590542,
+      "reverse": false
+    }
+  ],
+  "reverse_relations": [
+    {
+      "src": "Users",
+      "relation": "rev_owner",
+      "dst": "Repositories",
+      "edges": 28453,
+      "reverse": true
+    },
+    {
+      "src": "Users",
+      "relation": "rev_authored_by",
+      "dst": "PullRequests",
+      "edges": 70624,
+      "reverse": true
+    },
+    {
+      "src": "Repositories",
+      "relation": "rev_belongs_to",
+      "dst": "PullRequests",
+      "edges": 154238,
+      "reverse": true
+    },
+    {
+      "src": "Users",
+      "relation": "rev_authored_by",
+      "dst": "Issues",
+      "edges": 89028,
+      "reverse": true
+    },
+    {
+      "src": "Repositories",
+      "relation": "rev_belongs_to",
+      "dst": "Issues",
+      "edges": 89028,
+      "reverse": true
+    },
+    {
+      "src": "Users",
+      "relation": "rev_authored_by",
+      "dst": "IssueComments",
+      "edges": 61284,
+      "reverse": true
+    },
+    {
+      "src": "Issues",
+      "relation": "rev_comment_on",
+      "dst": "IssueComments",
+      "edges": 61284,
+      "reverse": true
+    },
+    {
+      "src": "Users",
+      "relation": "rev_reviewed_by",
+      "dst": "PRReviews",
+      "edges": 55438,
+      "reverse": true
+    },
+    {
+      "src": "PullRequests",
+      "relation": "rev_review_of",
+      "dst": "PRReviews",
+      "edges": 55438,
+      "reverse": true
+    },
+    {
+      "src": "Users",
+      "relation": "rev_authored_by",
+      "dst": "PRReviewComments",
+      "edges": 40396,
+      "reverse": true
+    },
+    {
+      "src": "PullRequests",
+      "relation": "rev_comment_on",
+      "dst": "PRReviewComments",
+      "edges": 40396,
+      "reverse": true
+    },
+    {
+      "src": "Users",
+      "relation": "rev_pushed_by",
+      "dst": "Pushes",
+      "edges": 590542,
+      "reverse": true
+    },
+    {
+      "src": "Repositories",
+      "relation": "rev_pushed_to",
+      "dst": "Pushes",
+      "edges": 590542,
+      "reverse": true
+    }
+  ]
+}

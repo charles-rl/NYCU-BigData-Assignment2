@@ -1,0 +1,263 @@
+{
+  "source": "experiments/ablations/ablation_summary.csv",
+  "seeds": [
+    "42",
+    "123",
+    "999"
+  ],
+  "protocol": {
+    "val_cutoff": [
+      "2026-02-15"
+    ],
+    "n_train_anchors": [
+      "8"
+    ],
+    "device": [
+      "cpu",
+      "cuda"
+    ],
+    "epochs": [
+      "310"
+    ],
+    "cells": 27
+  },
+  "reference": {
+    "variant": "pos-weights-auto",
+    "score_cmaes": 65.8361,
+    "score_cmaes_sd": 0.0615,
+    "score_default": 61.537,
+    "score_default_sd": 0.7955,
+    "macro_f1": 63.1587,
+    "micro_f1": 68.5134,
+    "minutes_per_cell": 66.9,
+    "n_parameters": 2304630,
+    "per_seed": {
+      "123": 65.81,
+      "42": 65.79,
+      "999": 65.91
+    },
+    "spread": [
+      65.79,
+      65.91
+    ],
+    "seeds": [
+      "42",
+      "123",
+      "999"
+    ],
+    "meaning": "submission recipe: 1 HGT layer + auto pos weights; best mean in the grid",
+    "delta_vs_full": 0.1223,
+    "delta_vs_lightgbm_auto": 2.6204
+  },
+  "groups": [
+    {
+      "group": "Depth & Efficiency",
+      "arms": [
+        {
+          "variant": "depth-1layer",
+          "score_cmaes": 65.6769,
+          "score_cmaes_sd": 0.0644,
+          "score_default": 56.9979,
+          "score_default_sd": 0.2603,
+          "macro_f1": 62.9854,
+          "micro_f1": 68.3684,
+          "minutes_per_cell": 67.6,
+          "n_parameters": 2304630,
+          "per_seed": {
+            "123": 65.7,
+            "42": 65.61,
+            "999": 65.73
+          },
+          "spread": [
+            65.61,
+            65.73
+          ],
+          "seeds": [
+            "42",
+            "123",
+            "999"
+          ]
+        },
+        {
+          "variant": "depth-2layer",
+          "score_cmaes": 65.8197,
+          "score_cmaes_sd": 0.1142,
+          "score_default": 56.9614,
+          "score_default_sd": 0.9276,
+          "macro_f1": 63.2379,
+          "micro_f1": 68.4016,
+          "minutes_per_cell": 112.4,
+          "n_parameters": 3048166,
+          "per_seed": {
+            "123": 65.69,
+            "42": 65.9,
+            "999": 65.86
+          },
+          "spread": [
+            65.69,
+            65.9
+          ],
+          "seeds": [
+            "42",
+            "123",
+            "999"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Temporal Mechanism",
+      "arms": [
+        {
+          "variant": "full",
+          "score_cmaes": 65.7138,
+          "score_cmaes_sd": 0.0863,
+          "score_default": 57.2774,
+          "score_default_sd": 0.2179,
+          "macro_f1": 63.0629,
+          "micro_f1": 68.3647,
+          "minutes_per_cell": 68.3,
+          "n_parameters": 2304630,
+          "per_seed": {
+            "123": 65.8,
+            "42": 65.63,
+            "999": 65.7
+          },
+          "spread": [
+            65.63,
+            65.8
+          ],
+          "seeds": [
+            "42",
+            "123",
+            "999"
+          ]
+        },
+        {
+          "variant": "no-temporal-decay",
+          "score_cmaes": 65.7744,
+          "score_cmaes_sd": 0.1079,
+          "score_default": 57.0451,
+          "score_default_sd": 0.0649,
+          "macro_f1": 63.0714,
+          "micro_f1": 68.4773,
+          "minutes_per_cell": 67.9,
+          "n_parameters": 2304630,
+          "per_seed": {
+            "123": 65.88,
+            "42": 65.78,
+            "999": 65.66
+          },
+          "spread": [
+            65.66,
+            65.88
+          ],
+          "seeds": [
+            "42",
+            "123",
+            "999"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Tabular Baseline Parity",
+      "arms": [
+        {
+          "variant": "lightgbm",
+          "score_cmaes": 63.3327,
+          "score_cmaes_sd": 0.1904,
+          "score_default": 59.8588,
+          "score_default_sd": 0.0262,
+          "macro_f1": 60.3344,
+          "micro_f1": 66.3309,
+          "minutes_per_cell": 3.7,
+          "n_parameters": 1860,
+          "per_seed": {
+            "123": 63.11,
+            "42": 63.45,
+            "999": 63.43
+          },
+          "spread": [
+            63.11,
+            63.45
+          ],
+          "seeds": [
+            "42",
+            "123",
+            "999"
+          ]
+        },
+        {
+          "variant": "lightgbm-pos-weights-auto",
+          "score_cmaes": 63.2157,
+          "score_cmaes_sd": 0.1858,
+          "score_default": 61.7829,
+          "score_default_sd": 0.103,
+          "macro_f1": 60.121,
+          "micro_f1": 66.3103,
+          "minutes_per_cell": 3.6,
+          "n_parameters": 1860,
+          "per_seed": {
+            "123": 63.1,
+            "42": 63.43,
+            "999": 63.11
+          },
+          "spread": [
+            63.1,
+            63.43
+          ],
+          "seeds": [
+            "42",
+            "123",
+            "999"
+          ]
+        }
+      ]
+    }
+  ],
+  "pair_deltas": [
+    {
+      "group": "Depth & Efficiency",
+      "baseline": "depth-1layer",
+      "variant": "depth-2layer",
+      "delta_cmaes": 0.1428,
+      "delta_default": -0.0365,
+      "per_seed_wins": 2,
+      "seed_count": 3,
+      "param_delta_pct": 32.3,
+      "minutes_delta_pct": 66.3
+    },
+    {
+      "group": "Temporal Mechanism",
+      "baseline": "full",
+      "variant": "no-temporal-decay",
+      "delta_cmaes": 0.0606,
+      "delta_default": -0.2323,
+      "per_seed_wins": 2,
+      "seed_count": 3,
+      "param_delta_pct": 0.0,
+      "minutes_delta_pct": -0.6
+    },
+    {
+      "group": "Tabular Baseline Parity",
+      "baseline": "lightgbm",
+      "variant": "lightgbm-pos-weights-auto",
+      "delta_cmaes": -0.117,
+      "delta_default": 1.9241,
+      "per_seed_wins": 0,
+      "seed_count": 3,
+      "param_delta_pct": 0.0,
+      "minutes_delta_pct": -2.7
+    }
+  ],
+  "noise_floor": {
+    "full_per_seed": {
+      "123": 65.8,
+      "42": 65.63,
+      "999": 65.7
+    },
+    "full_sd": 0.0863,
+    "rule": "treat any delta below ~0.2 as seed noise (experiments/ablations/RESULTS.md:83-84)"
+  }
+}
