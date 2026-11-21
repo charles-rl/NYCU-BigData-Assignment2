@@ -1,32 +1,52 @@
-```bash
-git clone --depth 1 https://github.com/nycubigdata-2026fall/BigData2026-Assignment2.git assignment2
-```
+# The submission run (what to type)
 
 ```bash
-mkdir raw_data
-mkdir processed_tables
-```
-
-```bash
+# 1. download the hourly files (edit START_DATE/END_DATE in the script first:
+#    the file is CRLF, so patch bytes rather than using `edit`)
 python scripts/get_raw_data.py
-```
 
-```bash
+# 2. audit them (~10 min, 48 workers). Writes raw_data/coverage.csv and
+#    raw_data/coverage_activity.csv; the trainer reads the second one.
+python scripts/verify_raw_data.py --workers 48
+
+# 3. build the 8 tables (~30 min). Required: the model reads nothing else.
 python scripts/preprocess.py --raw raw_data --out processed_tables
+
+# 4. the submission run (~3 h): 18 anchors, no held-out week, thresholds fitted
+#    on the last 84 days of anchors, then the test-week graph and
+#    submission/submission.csv. See docs/FINAL_RUN.md.
+WANDB_API_KEY=<your own key> PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  python -m scripts.run_training
 ```
 
-```bash
-python -m src.data.make_split
-```
+`python -m scripts.run_training` is `--mode final` by default. Useful variants:
 
 ```bash
-python -m scripts.run_training --anchor-end 2026-10-18 --anchor-stride 14
+# check the anchor plan, weights and graph sizes without training (~3 min)
+python -m scripts.run_training --dry-run
+
+# re-predict from the saved checkpoint after refreshing raw data / tables
+# (the feature window is 10 h short of the graded week; this refreshes it fast)
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python -m scripts.run_training --predict-only
+
+# the measurement protocol on the held-out week 2026-02-15 (what the ablation
+# grid and all 60 HPO trials ran)
+python -m scripts.run_training --mode validate
 ```
 
+Other one-off steps:
+
 ```bash
-# type the key inline, never `export` it (shared shell account) and never commit it
-WANDB_API_KEY=<your own key> PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python -m scripts.run_training --epochs 1000
+# leakage-checked temporal split written to splits/ (features, answer.csv)
+python -m src.data.make_split --cutoff 2026-02-08
+
+# decay curves + POS_WEIGHTS from clean anchors
+python -m src.data.activity_decay_analysis
 ```
+
+Need the GPU to yourself: the final run peaks at 66 GiB of VRAM for the largest anchor
+(25.6 GiB per million graph nodes, measured). It refuses to start if another process is
+holding the card.
 
 # For Ablations
 Terminal A — GPU 0, two cells (~3.7 h):

@@ -558,6 +558,10 @@ def build_argv(
 ) -> list[str]:
     """The exact ``python -m scripts.run_training ...`` for one trial."""
     argv = [sys.executable, "-m", TRAIN_MODULE]
+    # The trainer defaults to `--mode final` (the submission run, no held-out
+    # week).  A trial is only meaningful on the validation protocol, so pin it
+    # here instead of relying on the default.
+    argv += ["--mode", "validate"]
     for block in (fixed, params):
         for key, value in block.items():
             if value is None:

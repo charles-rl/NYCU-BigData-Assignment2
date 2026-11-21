@@ -10,7 +10,7 @@ OUTPUT_DIR = "raw_data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Define your exact start and end dates
-# Dec 1, 2025 to March 21, 2026.
+# Dec 1, 2025 to Nov 21, 2026.
 # Truncated from the documented full corpus (Oct 31, 2026) because this box only
 # has ~150 GB free on /train-data-5-hdd: 2025-12-01 .. 2026-10-31 is 8,042 hourly
 # files at a measured ~35.7 MB each, i.e. ~221 GB beyond what is already here.
@@ -22,9 +22,12 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # activity types appear at plausible density (~18k PullRequestEvents/hour, vs
 # ~1.3k in Sep 2026 and ~110 in Aug 2026), so Dec 2025 doubles as the reference month
 # for scripts/verify_raw_data.py.
-# November 1 until now is excluded because it seems there was data corruption during that time
+# November is downloaded and is not clean: PushEvent is absent and
+# PullRequestReviewCommentEvent loses ~2.5x, while the four pull-request
+# activities arrive at October's absolute volume. docs/VALIDATION_DATA.md
+# section 12 has the measurements and which label cells stay usable.
 START_DATE = datetime(2025, 12, 1).date()
-END_DATE   = datetime(2026, 3, 21).date()
+END_DATE   = datetime(2026, 11, 22).date()
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"

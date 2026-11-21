@@ -17,9 +17,9 @@ cutoff. Follow the decision box, then run the checklist in §6 before believing 
 | Second choice | `--cutoff 2026-03-08` (window 2026-03-08 .. 2026-03-15) |
 | Latest cutoff that still has a fully usable 7-day window for all six activities | **2026-03-14** |
 | Any cutoff after that? | **No 7-day cutoff exists.** The only recent window usable for all six is 2026-10-01 .. 10-05 — five days, sanity checks only (§4.2). Never November. |
-| Which months to train on? | All of 2025-12-01 .. 2026-10-31, with the per-activity coverage flags applied (§5). Do **not** drop whole months — see §7. |
+| Which months to train on? | All of 2025-12-01 .. 2026-10-31, with the per-activity coverage flags applied (§5). Do **not** drop whole months — see §7. For the *submission* run the anchors continue to 2026-11-14 under the hybrid rule in §12. |
 | Which data must never produce a *label*? | 2026-10-22 .. 2026-10-31, and any November week |
-| Is the test week predictable from the current corpus? | **No.** The test week needs features through ~2026-11-21, which are not on disk (§8). |
+| Is the test week predictable from the current corpus? | **Yes since 2026-11-21** — the corpus now ends 2026-11-21 05:49 UTC, 10.2 h before the graded week starts, so features exist but are slightly stale. The 2026-11-09 .. 11-21 download happened; see §12 and `docs/FINAL_RUN.md`. |
 | Is `splits/answer.csv` usable? | **No — stale and invalid.** It is anchored at 2026-11-01, a window built from data that has since been deleted (§9). |
 
 If a training run reports a validation score from a cutoff outside this list, treat the score
@@ -288,6 +288,11 @@ Apply the flags, keep the rows.
 
 ## 8. Blocker for the actual test week
 
+> **Resolved on 2026-11-21.** 2026-11-09 .. 11-21 has been downloaded, audited and
+> preprocessed; the corpus ends 2026-11-21 05:49 UTC. November is damaged but usable in a
+> specific, measured way — read §12 before acting on anything below, which is the record of
+> the state before that download.
+
 README §4: the test week is **2026-11-22 00:00 – 2026-11-29 00:00 Taiwan time**, i.e.
 **2026-11-21 16:00 UTC .. 2026-11-28 16:00 UTC**.
 
@@ -455,3 +460,68 @@ Train on 2025-12-01 .. 2026-10-31 with per-activity coverage flags; validate at
 `--cutoff 2026-02-15` (never later than 2026-03-14); treat 2026-10-22 .. 2026-10-31 and
 everything after it as unobserved, not as negative; and do not attempt a test-week
 submission until 2026-11-09 .. 11-21 has been downloaded and audited.
+
+---
+
+## 12. Update 2026-11-21: November audited, and the submission protocol
+
+Everything below is measured, not assumed. Full detail and the run's own report:
+[`docs/FINAL_RUN.md`](FINAL_RUN.md).
+
+### 12.1 The audit of the full corpus (8,526 hours, 0 unreadable)
+
+`python scripts/verify_raw_data.py --workers 48` reproduces `raw_data/coverage*.csv`. Clean
+days per month: 2025-12 20-31, 2026-01 19-31, 2026-02 19-28, 2026-03 8-31, 2026-04 4-30,
+2026-06 1-26, 2026-07 11-19, 2026-08 0-10, 2026-09 2-12, 2026-10 7-9, **2026-11 0-0**.
+
+November is present and is *not* clean — but the failure mode is narrower than §2 suggested:
+
+| per-hour median (2026) | Oct | Nov | ratio |
+| --- | --- | --- | --- |
+| total events | 39,493 | 4,098 | 0.10 |
+| `PushEvent` | 28,884 | **0** | 0.00 |
+| `PullRequestEvent` | 1,501 | 1,505 | 1.00 |
+| `IssuesEvent` | 615 | 621 | 1.01 |
+| `IssueCommentEvent` | 754 | 697 | 0.92 |
+| `PullRequestReviewEvent` | 366 | 356 | 0.97 |
+| `PullRequestReviewCommentEvent` | 232 | 93 | 0.40 |
+
+Cohort-level label counts agree: October anchors produced 306-447 `open_pr` positives, November
+anchors 356-371; `push` fell from 2,058-2,183 to 315-457, `pr_review_comment` from 143-197 to
+65-98.
+
+**So `push` is dead, `pr_review_comment` loses ~2.5x, and the four pull-request activities are
+intact at October's absolute volume.** The audit still marks all 21 November days unusable for
+every activity because its density band is share-based: push is ~90% of a normal hour, so
+losing it divides the denominator by ten and inflates every survivor's share past
+`max_activity_ratio`. That is a denominator artifact, not a label defect — see §3 for why the
+test exists and what it is meant to catch.
+
+### 12.2 The rule that resolves it: `--anchor-observed hybrid`
+
+A label cell enters the loss when the audit trusts it **or** its positive count is within
+`0.6 .. 2.0` of the median of its ±4 neighbouring anchors (`count_sanity_flags` in
+`src/data/label_coverage.py`). The union keeps the dense winter weeks, keeps the intact
+November cells, and still refuses a collapsed stream (`push` = 0.20x, `pr_review_comment` on
+2026-09-21 = 3.5x, 2026-08-24 `open_pr` = 0.50x). This is the default for `--mode final`;
+`--mode validate` keeps the audit-only `label` rule that every ablation cell and HPO trial
+used.
+
+### 12.3 The submission run
+
+`python -m scripts.run_training` is now `--mode final` by default: no held-out week, 18
+anchors (weekly 2025-12-22 .. 2026-02-09, then 28-day to 2026-11-14), 124,735 labelled rows,
+thresholds fitted per activity on the last 84 days of anchors, then the test-week graph at
+2026-11-21 16:00 UTC and `submission/submission.csv` (4,465 users). The measurement protocol is
+untouched and still reachable with `--mode validate`; `scripts/hpo.py` pins it explicitly.
+
+`CUTOFF_CEILING` (2026-10-24) still guards every training and validation split. The final run
+passes its own ceiling — the graded week's start — to `assert_before_test_week`, so no label is
+ever read at or after 2026-11-21 16:00 UTC.
+
+### 12.4 What this does not fix
+
+The feature window ends 10.2 hours before the graded week starts and cannot be extended: GH
+Archive only publishes an hour once it has completed. `push` and `pr_review_comment` remain
+the unreliable columns, and the February-15 scores in §4.1 do not transfer to a sparse test
+week. Those limits are listed in `docs/FINAL_RUN.md` §7 rather than smoothed over.

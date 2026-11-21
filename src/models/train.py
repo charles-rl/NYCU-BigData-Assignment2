@@ -25,7 +25,10 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmResta
 
 from src.models.hetero_model import GitHubHeteroHGT
 from src.utils.metrics import ACTIVITY_NAMES, score_in_memory
-from src.utils.threshold_optimizer import optimize_thresholds_cmaes
+from src.utils.threshold_optimizer import (
+    optimal_thresholds_per_activity,
+    optimize_thresholds_cmaes,
+)
 
 __all__ = [
     "ACTIVITY_NAMES",
@@ -33,6 +36,7 @@ __all__ = [
     "optimize_thresholds_cmaes",
     "score_in_memory",
     "train_model",
+    "train_model_final",
     "train_model_multi_anchor",
 ]
 
@@ -522,6 +526,236 @@ def _to_device(graph, device: str) -> tuple[Any, bool]:
     if graph[first].x.device == target:
         return graph, False
     return graph.to(device), True
+
+
+def _anchor_probabilities(
+    model: GitHubHeteroHGT,
+    anchors: list[Anchor],
+    device: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Eval-mode probabilities, labels and observation mask over every anchor."""
+    model.eval()
+    probs: list[np.ndarray] = []
+    labels: list[np.ndarray] = []
+    observed: list[np.ndarray] = []
+    for anchor in anchors:
+        graph, moved = _to_device(anchor.graph, device)
+        row_mask = torch.from_numpy(anchor.mask).to(device=device, dtype=torch.bool)
+        with torch.no_grad():
+            logits = model(graph)[row_mask]
+            probs.append(torch.sigmoid(logits).cpu().numpy())
+        labels.append(anchor.labels[anchor.mask])
+        observed.append(anchor.observed[anchor.mask])
+        del logits
+        if moved:
+            anchor.graph = anchor.graph.to("cpu")
+        torch.cuda.empty_cache() if device.startswith("cuda") else None
+    return (
+        np.concatenate(probs, axis=0),
+        np.concatenate(labels, axis=0),
+        np.concatenate(observed, axis=0),
+    )
+
+
+def train_model_final(
+    model: GitHubHeteroHGT,
+    train_anchors: list[Anchor],
+    pos_weights: list[float],
+    *,
+    epochs: int = 310,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-4,
+    grad_clip: float = 1.0,
+    lr_schedule: str = "warm-restarts",
+    lr_t0: int = 5,
+    lr_t_mult: int = 2,
+    project_name: str = "nycu-bigdata-asg2",
+    run_name: str = "hgt-final",
+    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+    wandb_mode: Literal["online", "offline", "disabled", "shared"] = "online",
+    extra_config: dict[str, object] | None = None,
+    save_model_path: str | None = None,
+    checkpoint_every: int = 50,
+    shuffle_anchors: bool = True,
+    anchor_seed: int = 42,
+    threshold_anchors: list[Anchor] | None = None,
+) -> tuple[GitHubHeteroHGT, np.ndarray, dict[str, object]]:
+    """Train on every usable anchor, with **no held-out week at all**.
+
+    This is the submission run, not a measurement run: every labelled week goes
+    into the loss, including the recent ones, so there is nothing left to
+    validate on.  Two consequences shape the implementation:
+
+    * There is no validation loop, so no "best epoch" to restore.  The model at
+      the end of the schedule is the model -- period.  Checkpoints are written
+      every ``checkpoint_every`` epochs anyway, so a crash late in a multi-hour
+      run does not discard the work.
+    * Thresholds cannot be fitted by the joint CMA-ES objective
+      (``macro/micro`` over all six activities per row) because the late anchors
+      have unobserved columns.  :func:`optimal_thresholds_per_activity` fits
+      each activity on exactly the rows where it was observed instead, and it
+      runs *after* training on the model's own eval-mode probabilities.
+
+    The training objective is unchanged from :func:`train_model_multi_anchor`:
+    one optimizer step per epoch on the sum of the anchors' masked BCE
+    gradients, each anchor weighted by its share of observed label cells.
+
+    ``threshold_anchors`` limits which anchors the *thresholds* are fitted on
+    (they always train on all of them).  This matters because the corpus is not
+    stationary: `open_pr` prevalence is 15.2% on 2026-02-15 and 4.0% on
+    2026-11-14, a 3.8x regime shift.  A threshold that maximises F1 on the
+    pooled history mostly reflects the dense winter weeks, and applied to the
+    sparse test week it over-predicts.  Passing the recent anchors here
+    calibrates the operating point on the regime the test week lives in, while
+    the model itself still learns from every labelled week available.
+    """
+    if len(pos_weights) != len(ACTIVITY_NAMES):
+        raise ValueError(
+            f"pos_weights must have {len(ACTIVITY_NAMES)} entries, got {len(pos_weights)}"
+        )
+    if not train_anchors:
+        raise ValueError("train_anchors is empty")
+    missing = [a.name for a in train_anchors if a.n_observed == 0]
+    if missing:
+        raise ValueError(f"anchors with no observed label entries: {missing}")
+
+    wandb.init(
+        project=project_name,
+        name=run_name,
+        mode=wandb_mode,
+        config={
+            "mode": "final (no validation)",
+            "epochs": epochs,
+            "lr": lr,
+            "weight_decay": weight_decay,
+            "pos_weights": pos_weights,
+            "optimizer": "AdamW",
+            **_scheduler_config(lr_schedule, epochs, lr, lr_t0, lr_t_mult),
+            "grad_clip_max_norm": grad_clip,
+            "threshold_fit": "per-activity exact F1 on observed train rows",
+            "threshold_anchors": (
+                [str(a.cutoff.date()) for a in (threshold_anchors or train_anchors)]
+            ),
+            "device": device,
+            "n_anchors": len(train_anchors),
+            "anchors": [str(a.cutoff.date()) for a in train_anchors],
+            "anchor_observed_entries": [a.n_observed for a in train_anchors],
+            **(extra_config or {}),
+        },
+        dir=WANDB_DIR,
+    )
+
+    model = model.to(device)
+    weight_tensor = torch.tensor(pos_weights, dtype=torch.float32, device=device)
+    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = _build_scheduler(optimizer, lr_schedule, epochs, lr, lr_t0, lr_t_mult)
+
+    shares = np.array([a.n_observed for a in train_anchors], dtype=np.float64)
+    shares /= shares.sum()
+    rng = np.random.default_rng(anchor_seed)
+    checkpoint_path = Path(save_model_path) if save_model_path else None
+    if checkpoint_path is not None:
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _save(thresholds: np.ndarray, tag: str) -> None:
+        if checkpoint_path is None:
+            return
+        torch.save(
+            {
+                "state_dict": model.state_dict(),
+                "thresholds": thresholds.tolist(),
+                "config": dict(wandb.config),
+                "stage": tag,
+            },
+            checkpoint_path,
+        )
+
+    epoch_loss = float("nan")
+    for epoch in range(1, epochs + 1):
+        model.train()
+        optimizer.zero_grad(set_to_none=True)
+
+        order = (
+            rng.permutation(len(train_anchors))
+            if shuffle_anchors
+            else np.arange(len(train_anchors))
+        )
+        epoch_loss = 0.0
+        for slot in order:
+            idx = int(slot)
+            anchor = train_anchors[idx]
+            graph, moved = _to_device(anchor.graph, device)
+            row_mask = torch.from_numpy(anchor.mask).to(device=device, dtype=torch.bool)
+
+            logits = model(graph)[row_mask]
+            y, obs = _anchor_batch(anchor, device)
+            loss = _masked_bce(logits, y, obs, weight_tensor)
+            (loss * float(shares[idx])).backward()
+            epoch_loss += float(loss.detach()) * float(shares[idx])
+
+            del logits, y, obs, loss
+            if moved:
+                anchor.graph = anchor.graph.to("cpu")
+
+        if grad_clip > 0:
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
+            grad_norm_value = float(grad_norm)
+        else:
+            grad_norm_value = 0.0
+        optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
+
+        wandb.log(
+            {
+                "train/loss": epoch_loss,
+                "train/grad_norm": grad_norm_value,
+                "train/lr": _current_lr(scheduler, optimizer),
+                "train/anchors": len(train_anchors),
+                "epoch": epoch,
+            }
+        )
+        if epoch == 1 or epoch % 25 == 0 or epoch == epochs:
+            print(
+                f"Epoch {epoch:03d}/{epochs} | anchors {len(train_anchors)} | "
+                f"loss train {epoch_loss:.4f} | lr {_current_lr(scheduler, optimizer):.2e}",
+                flush=True,
+            )
+        if checkpoint_path is not None and checkpoint_every > 0 and epoch % checkpoint_every == 0:
+            # Thresholds are only meaningful at the end; keep the running state
+            # so a crash still leaves a loadable model behind.
+            _save(np.full(len(ACTIVITY_NAMES), float("nan")), f"epoch-{epoch}")
+
+    print("\nFitting per-activity thresholds on the training anchors ...", flush=True)
+    calibration_anchors = threshold_anchors if threshold_anchors else train_anchors
+    train_probs, train_labels, train_observed = _anchor_probabilities(
+        model, calibration_anchors, device
+    )
+    thresholds, fit_metrics = optimal_thresholds_per_activity(
+        train_probs, train_labels, train_observed
+    )
+    fit_metrics["calibration_anchors"] = [
+        str(anchor.cutoff.date()) for anchor in calibration_anchors
+    ]
+    print(
+        f"  fitted on {len(calibration_anchors)} of {len(train_anchors)} anchors "
+        f"({calibration_anchors[0].cutoff.date()} .. {calibration_anchors[-1].cutoff.date()})"
+    )
+    for i, act in enumerate(ACTIVITY_NAMES):
+        print(
+            f"  {act:<20} theta {thresholds[i]:.3f}  "
+            f"F1(fit) {fit_metrics['f1'][act] * 100:5.2f}%  "
+            f"rows {fit_metrics['n_rows'][act]:>7,}  "
+            f"base rate {fit_metrics['base_rate'][act] * 100:5.2f}%"
+        )
+
+    _save(thresholds, "final")
+    if checkpoint_path is not None:
+        print(f"Saved checkpoint to {checkpoint_path}")
+    wandb.summary["thresholds"] = thresholds.tolist()
+    wandb.summary["train_anchor_rows"] = int(train_labels.shape[0])
+    wandb.finish()
+    return model, thresholds, dict(fit_metrics)
 
 
 def train_model_multi_anchor(

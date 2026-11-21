@@ -26,6 +26,7 @@ __all__ = [
     "DEFAULT_POPSIZE",
     "DEFAULT_SIGMA0",
     "DEFAULT_X0",
+    "optimal_thresholds_per_activity",
     "optimize_thresholds_cmaes",
     "predict_with_thresholds",
 ]
@@ -69,6 +70,113 @@ def predict_with_thresholds(y_probs, thresholds) -> np.ndarray:
     if theta.size != probs.shape[1]:
         raise ValueError(f"expected 1 or {probs.shape[1]} thresholds, got {theta.size}")
     return (probs >= theta[None, :]).astype(np.int64)
+
+
+def optimal_thresholds_per_activity(
+    y_probs,
+    y_true,
+    observed=None,
+    *,
+    bounds: tuple[float, float] = DEFAULT_BOUNDS,
+    events: Sequence[str] | None = None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Per-activity F1-optimal threshold, one independent 1-D search each.
+
+    Why this exists alongside :func:`optimize_thresholds_cmaes`: the joint
+    six-variable CMA-ES objective is the *TA score*, which needs every activity
+    of a row to be measured at once (micro-F1 pools them).  A final-training run
+    uses anchors where some activities are unobserved (GH Archive dropped the
+    stream), and those rows would then be invisible to theta.  F1 for activity
+    ``a`` depends only on ``a``'s own predictions and labels, so each threshold
+    can be fitted on exactly the rows where ``a`` was observed -- which is all
+    the information the tuning step needs, and it keeps the sparse late anchors
+    (the ones that match the test week) in the calibration set.
+
+    The search is exact rather than stochastic.  Sorting the scores descending
+    turns the cumulative TP/FP counts into F1 at every cut-off, so the optimum
+    is found in ``O(n log n)`` with no CMA-ES budget, seed or convergence risk.
+    ``observed`` is a ``(n_rows, n_activities)`` boolean mask; a False entry is
+    not a negative, it is a fact nobody measured, so it is dropped.
+
+    Returns
+    -------
+    (theta, metrics)
+        ``theta`` has one entry per activity inside ``bounds``.  ``metrics``
+        carries ``f1`` (per activity, on the rows theta was fitted on),
+        ``n_rows`` (per activity) and ``base_rate`` (positives / rows).
+    """
+    names = tuple(ACTIVITY_NAMES if events is None else events)
+    probs = _as_probability_matrix(y_probs, len(names))
+    truth = _to_numpy(y_true, "y_true")
+    if truth.shape != probs.shape:
+        raise ValueError(
+            f"y_true {truth.shape} and y_probs {probs.shape} must have the same shape"
+        )
+    labels = truth.astype(bool)
+    if observed is None:
+        mask = np.ones_like(labels, dtype=bool)
+    else:
+        mask = _to_numpy(observed, "observed").astype(bool)
+        if mask.shape != labels.shape:
+            raise ValueError(
+                f"observed {mask.shape} and y_true {labels.shape} must have the same shape"
+            )
+
+    lo, hi = float(bounds[0]), float(bounds[1])
+    theta = np.full(len(names), 0.5, dtype=np.float64)
+    f1_values = np.zeros(len(names), dtype=np.float64)
+    n_rows = np.zeros(len(names), dtype=np.int64)
+    base_rate = np.zeros(len(names), dtype=np.float64)
+
+    for j in range(len(names)):
+        p = probs[mask[:, j], j].astype(np.float64)
+        y = labels[mask[:, j], j]
+        n_rows[j] = int(p.size)
+        if p.size == 0:
+            # Nothing measured: the only defensible answer is "do not predict".
+            theta[j] = hi
+            continue
+        positives = int(y.sum())
+        base_rate[j] = positives / p.size
+        if positives == 0 or positives == p.size:
+            # Degenerate column. Predict the majority class; F1 is 1 when the
+            # prediction reproduces a constant truth, 0 when it cannot.
+            theta[j] = lo if positives * 2 > p.size else hi
+            f1_values[j] = 1.0 if (positives == 0 and theta[j] == hi) else 0.0
+            continue
+
+        order = np.argsort(-p, kind="stable")
+        ordered_p = p[order]
+        ordered_y = y[order]
+        tp = np.cumsum(ordered_y.astype(np.int64))
+        fp = np.cumsum(~ordered_y)
+        fn = positives - tp
+        denominator = 2 * tp + fp + fn
+        f1_curve = np.divide(
+            2 * tp,
+            denominator,
+            out=np.zeros(denominator.shape, dtype=np.float64),
+            where=denominator > 0,
+        )
+        best = int(np.argmax(f1_curve))
+        f1_values[j] = float(f1_curve[best])
+
+        # Sit between the last accepted score and the first rejected one, so the
+        # threshold reproduces exactly the cut that maximised F1.
+        if best + 1 < ordered_p.size:
+            threshold = (ordered_p[best] + ordered_p[best + 1]) / 2.0
+        else:
+            threshold = ordered_p[best] * 0.5
+        theta[j] = float(np.clip(threshold, lo, hi))
+
+    metrics: dict[str, Any] = {
+        "f1": {a: float(f1_values[i]) for i, a in enumerate(names)},
+        "macro_f1": float(f1_values.mean()),
+        "n_rows": {a: int(n_rows[i]) for i, a in enumerate(names)},
+        "base_rate": {a: float(base_rate[i]) for i, a in enumerate(names)},
+        "objective": "per-activity F1 (exact 1-D search over sorted scores)",
+    }
+    return theta, metrics
 
 
 def optimize_thresholds_cmaes(

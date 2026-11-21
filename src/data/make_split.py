@@ -47,37 +47,50 @@ CUTOFF_CEILING = pd.Timestamp("2026-10-24 00:00:00")
 
 
 def assert_before_test_week(
-    cutoff: pd.Timestamp, *, days: int | None = None, context: str = "cutoff"
+    cutoff: pd.Timestamp,
+    *,
+    days: int | None = None,
+    context: str = "cutoff",
+    ceiling: pd.Timestamp | None = None,
 ) -> None:
     """Refuse a training/validation cutoff that reaches the test-week guard.
 
-    ``cutoff`` must be strictly before :data:`CUTOFF_CEILING`. When ``days`` is
-    given, the label window ``[cutoff, cutoff + days)`` must also end at or
-    before the ceiling -- a cutoff three days earlier would otherwise read its
-    labels from the guarded week.
+    ``cutoff`` must be strictly before ``ceiling`` (default
+    :data:`CUTOFF_CEILING`). When ``days`` is given, the label window
+    ``[cutoff, cutoff + days)`` must also end at or before the ceiling -- a
+    cutoff three days earlier would otherwise read its labels from the guarded
+    week.
+
+    ``ceiling`` is overridable for exactly one caller: the final submission run
+    builds a *feature* view at the graded week's start and trains on the last
+    complete label week before it (``scripts/run_training.py --mode final``).
+    There the guard that matters is the test week itself, not the conservative
+    2026-10-24 ceiling, because no label is ever read at or after the graded
+    window.
 
     This is an operational guard, not a correctness check: ``build_split`` stays
     a pure function so the leakage tests can exercise arbitrary timestamps.
     """
+    limit = CUTOFF_CEILING if ceiling is None else cast(pd.Timestamp, ceiling)
     latest = (
         None
         if days is None
-        else cast(pd.Timestamp, CUTOFF_CEILING - pd.Timedelta(days=days))
+        else cast(pd.Timestamp, limit - pd.Timedelta(days=days))
     )
     window_end = (
         None if days is None else cast(pd.Timestamp, cutoff + pd.Timedelta(days=days))
     )
     hint = f" (latest allowed cutoff: {latest})" if latest is not None else ""
-    if cutoff >= CUTOFF_CEILING:
+    if cutoff >= limit:
         raise SystemExit(
             f"{context} {cutoff} is at/after the test-week guard "
-            f"{CUTOFF_CEILING}; refusing to build a split that could leak the "
+            f"{limit}; refusing to build a split that could leak the "
             f"graded window{hint}"
         )
     if latest is not None and window_end is not None and cutoff > latest:
         raise SystemExit(
             f"{context} {cutoff} plus {days}d of labels reaches {window_end}, "
-            f"past the test-week guard {CUTOFF_CEILING}; labels would be read "
+            f"past the test-week guard {limit}; labels would be read "
             f"from the graded window{hint}"
         )
 

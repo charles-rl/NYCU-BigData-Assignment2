@@ -4,7 +4,21 @@ This is the driver that `src/models/train.py` was missing: it turns raw parquet
 tables into a leakage-checked temporal split, builds the heterogeneous graph,
 aligns the labels to graph node order, and then calls ``train_model``.
 
-Temporal setup (from docs/VALIDATION_DATA.md):
+Two modes, and the default is the submission run:
+
+``--mode final`` (default)
+    No held-out week.  Trains on every anchor the coverage audit can support up
+to the last complete week before the graded test week, fits the six thresholds
+on the training anchors, builds the test-week feature graph at ``--test-cutoff``
+and writes ``submission/submission.csv``.  This is the run described in
+``docs/FINAL_RUN.md``.
+
+``--mode validate``
+    The measurement protocol: a clean held-out week (default 2026-02-15) scored
+    by the TA metric, thresholds fitted by CMA-ES on the training anchors only.
+    Every ablation cell and all 60 HPO trials used this path.
+
+Temporal setup for the validation mode (from docs/VALIDATION_DATA.md):
 
   train: features before 2026-02-08, labels 2026-02-08 .. 2026-02-15
   val:   features before 2026-02-15, labels 2026-02-15 .. 2026-02-22
@@ -17,14 +31,20 @@ overlap.
 
 Examples
 --------
+    # the submission run: train on everything usable, predict 2026-11-22..29
+    python -m scripts.run_training
+
+    # same, but skip training and re-predict from the saved checkpoint
+    python -m scripts.run_training --predict-only
+
+    # the measurement protocol (validation week 2026-02-15)
+    python -m scripts.run_training --mode validate
+
     # sanity check the data plumbing, no training
     python -m scripts.run_training --dry-run
 
     # short run to see the curves
-    python -m scripts.run_training --epochs 3 --val-interval 1
-
-    # full run
-    python -m scripts.run_training
+    python -m scripts.run_training --mode validate --epochs 3 --val-interval 1
 
     # no network
     python -m scripts.run_training --wandb-mode offline
@@ -51,16 +71,18 @@ from src.data.label_coverage import load_day_flags, observed_activities
 from src.data.make_split import (
     assert_before_test_week,
     build_split,
+    cohort_users,
     leakage_failures,
 )
 from src.data.split_io import DEFAULT_DB, load_tables, parse_cutoff
-from src.data.temporal_split import LABEL_COLS
+from src.data.temporal_split import LABEL_COLS, extract_labels, mask_future_leakage
 from src.features.build_graph import build_hetero_graph
 from src.models.hetero_model import GitHubHeteroHGT
 from src.models.train import (
     ACTIVITY_NAMES,
     Anchor,
     train_model,
+    train_model_final,
     train_model_multi_anchor,
 )
 
@@ -84,6 +106,72 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     ap.add_argument("--db", default=DEFAULT_DB, help="parquet folder with the tables")
+    ap.add_argument(
+        "--mode",
+        choices=("final", "validate"),
+        default="final",
+        help=(
+            "final: no held-out week, train on every usable anchor, fit thresholds "
+            "on train rows, predict the graded test week and write the submission. "
+            "validate: the held-out-week measurement protocol (default 2026-02-15)."
+        ),
+    )
+    ap.add_argument(
+        "--final",
+        action="store_true",
+        help="shorthand for --mode final (already the default)",
+    )
+    ap.add_argument(
+        "--test-cutoff",
+        default="2026-11-21 16:00:00",
+        help=(
+            "feature cutoff for the submission: the graded week is 2026-11-22..29 "
+            "Taiwan time = 2026-11-21 16:00 .. 11-28 16:00 UTC"
+        ),
+    )
+    ap.add_argument(
+        "--test-input",
+        default="submission/test_input.csv",
+        help="official list of test users (UserID column)",
+    )
+    ap.add_argument(
+        "--submission-out",
+        default="submission/submission.csv",
+        help="where to write the test-week predictions",
+    )
+    ap.add_argument(
+        "--predict-only",
+        action="store_true",
+        help=(
+            "skip training: load --checkpoint and only build the test graph and "
+            "write the submission (use after refreshing raw data / preprocessing)"
+        ),
+    )
+    ap.add_argument(
+        "--anchor-dense-end",
+        default="2026-02-09",
+        help=(
+            "final mode: last anchor of the weekly dense block (the regime the "
+            "ablation grid validated); after it anchors are --anchor-stride apart"
+        ),
+    )
+    ap.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=50,
+        help="final mode: write the checkpoint every N epochs (0 disables)",
+    )
+    ap.add_argument(
+        "--threshold-lookback-days",
+        type=int,
+        default=84,
+        help=(
+            "final mode: fit the six thresholds on the anchors within this many days "
+            "of the last training anchor, so the operating point comes from the "
+            "regime the test week lives in (open_pr prevalence 4.0%% in Nov vs "
+            "15.2%% in Feb). 0 = use every anchor."
+        ),
+    )
     ap.add_argument(
         "--val-cutoff",
         default="2026-02-15",
@@ -113,10 +201,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ap.add_argument("--anchor-stride", type=int, default=7, help="days between anchors")
     ap.add_argument(
+        "--anchor-stride-final",
+        type=int,
+        default=28,
+        help=(
+            "final mode: anchor spacing after --anchor-dense-end. 28 keeps the "
+            "run near three hours on this corpus (measured 1.3 s per million "
+            "graph nodes per epoch, ~23M nodes per epoch at stride 28)"
+        ),
+    )
+    ap.add_argument(
         "--anchor-observed",
-        choices=("label", "strict", "off"),
-        default="label",
-        help="usability rule from coverage_activity.csv for a label cell",
+        choices=("hybrid", "label", "strict", "off"),
+        default=None,
+        help=(
+            "usability rule from coverage_activity.csv for a label cell. "
+            "hybrid (final-mode default): audit OR label-count sanity, so the "
+            "intact 2026-10/11 pull-request cells are usable while the collapsed "
+            "push stream is dropped. label (validate-mode default): the audit "
+            "alone. strict: audit over the label window and the feature lookback. "
+            "off: trust every cell."
+        ),
     )
     ap.add_argument(
         "--anchor-min-observed",
@@ -531,8 +636,565 @@ def parse_cutoff_arg(value: str) -> pd.Timestamp:
     return ts
 
 
+def resolve_mode(args: argparse.Namespace) -> str:
+    """`--final` is a shorthand that wins over the default `--mode`."""
+    return "final" if args.final or args.mode == "final" else "validate"
+
+
+def resolve_anchor_observed(args: argparse.Namespace) -> str:
+    """Default observability rule: hybrid for the submission run, audit otherwise."""
+    if args.anchor_observed:
+        return str(args.anchor_observed)
+    return "hybrid" if resolve_mode(args) == "final" else "label"
+
+
+def final_anchor_cutoffs(
+    *,
+    start: pd.Timestamp,
+    dense_end: pd.Timestamp,
+    end: pd.Timestamp,
+    stride: int,
+) -> list[pd.Timestamp]:
+    """Weekly anchors over the dense regime, then `stride`-day anchors to the end.
+
+    The ablation grid, the HPO study and every validated score in this repo come
+    from weekly anchors over 2025-12-22 .. 2026-02-08, i.e. the dense regime.
+    The graded week lives in the sparse regime (a tenth of that event volume),
+    so the submission run keeps that validated block **and** continues towards
+    the test week.  Continuing weekly would put ~40 anchors and 50M graph nodes
+    into every epoch; the graph grows monotonically with history, so the late
+    anchors are also the expensive ones.  A stride of 28 days past the dense
+    block costs ~20M nodes per epoch and keeps every month of the sparse regime
+    represented.
+    """
+    if stride < 1:
+        raise SystemExit("--anchor-stride-final must be >= 1")
+    if end < start:
+        raise SystemExit(f"anchor start {start.date()} is after the last allowed anchor {end.date()}")
+
+    cutoffs: list[pd.Timestamp] = []
+    current = start
+    last_dense = min(cast(pd.Timestamp, dense_end), cast(pd.Timestamp, end))
+    while current <= last_dense:
+        cutoffs.append(cast(pd.Timestamp, current))
+        current = cast(pd.Timestamp, current + pd.Timedelta(days=7))
+
+    if end > dense_end:
+        current = cast(pd.Timestamp, dense_end + pd.Timedelta(days=stride))
+        while current < end:
+            cutoffs.append(current)
+            current = cast(pd.Timestamp, current + pd.Timedelta(days=stride))
+        cutoffs.append(cast(pd.Timestamp, end))
+    elif end not in cutoffs:
+        cutoffs.append(cast(pd.Timestamp, end))
+    return sorted(set(cutoffs))
+
+
+def anchor_positives(
+    tables: dict[str, pd.DataFrame], cutoffs: list[pd.Timestamp], days: int
+) -> np.ndarray:
+    """`(n_anchors, 6)` positive counts per anchor, from the labels' own tables.
+
+    Needed by the hybrid observability rule: it judges a label cell by how many
+    positives the 7-day window actually produced.  Cheap on purpose -- it reads
+    the six label tables and never materialises a feature view.
+    """
+    cohort = cohort_users(tables)
+    window = pd.Timedelta(days=days)
+    counts: list[np.ndarray] = []
+    for cutoff in cutoffs:
+        start = cast(pd.Timestamp, cutoff)
+        end = cast(pd.Timestamp, start + window)
+        labels = extract_labels(tables, start, end, cohort)
+        counts.append(labels[LABEL_COLS].sum().to_numpy())
+    return np.array(counts)
+
+
+def build_inference_graph(
+    tables: dict[str, pd.DataFrame], cutoff: pd.Timestamp, name: str = "test"
+) -> tuple[HeteroData, pd.DataFrame]:
+    """Feature-only graph at `cutoff`. No labels are read anywhere here."""
+    started = time.time()
+    features = mask_future_leakage(tables, cutoff)
+    graph = build_hetero_graph(features, cutoff)
+    users = features["Users"].reset_index(drop=True)
+    if graph["Users"].num_nodes != len(users):
+        raise SystemExit(
+            f"graph has {graph['Users'].num_nodes} user nodes but {len(users)} user rows"
+        )
+    total = sum(graph[node_type].num_nodes for node_type in graph.node_types)
+    latest = max(
+        (cast(pd.Series, features[name][col]).max() for name, col in {
+            "Users": "first_seen_at",
+            "PullRequests": "first_seen_at",
+            "Pushes": "created_at",
+            "IssueComments": "created_at",
+        }.items() if name in features and col in features[name].columns),
+        default=pd.NaT,
+    )
+    print(
+        f"  [{name}] cutoff {cutoff} | latest row {latest} | "
+        f"{graph['Users'].num_nodes:,} users, {total:,} nodes | {time.time() - started:.1f}s"
+    )
+    return graph, users
+
+
+def predict_test_week(
+    *,
+    model: GitHubHeteroHGT,
+    graph: HeteroData,
+    users: pd.DataFrame,
+    thresholds: np.ndarray,
+    test_input: str,
+    out_path: str,
+    probs_path: str,
+    device: str,
+) -> int:
+    """Score the test users, write the submission CSV, and format-check it."""
+    wanted = pd.read_csv(test_input)
+    if "UserID" not in wanted.columns:
+        raise SystemExit(f"{test_input} has no UserID column")
+    wanted_ids = wanted["UserID"].to_numpy(dtype=np.int64)
+
+    node_pos = pd.Series(
+        np.arange(len(users)), index=users["github_user_id"].to_numpy(dtype=np.int64)
+    )
+    present = np.isin(wanted_ids, node_pos.index.to_numpy())
+    rows = np.full(len(wanted_ids), -1, dtype=np.int64)
+    rows[present] = node_pos.loc[wanted_ids[present]].to_numpy()
+    if not present.any():
+        raise SystemExit("no test user appears in the feature view; check --test-cutoff")
+
+    moved = graph.to(device)
+    probabilities = np.zeros((len(wanted_ids), len(ACTIVITY_NAMES)), dtype=np.float64)
+    probabilities[present] = model.predict_proba(moved).cpu().numpy()[rows[present]]
+    del moved
+    if device.startswith("cuda"):
+        torch.cuda.empty_cache()
+
+    binary = (probabilities >= np.asarray(thresholds, dtype=np.float64)[None, :]).astype(np.int64)
+
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    submission = pd.DataFrame(binary, columns=list(ACTIVITY_NAMES))
+    submission.insert(0, "UserID", wanted_ids)
+    submission.to_csv(out, index=False)
+
+    probs_file = Path(probs_path)
+    probs_file.parent.mkdir(parents=True, exist_ok=True)
+    prob_frame = pd.DataFrame(probabilities, columns=list(ACTIVITY_NAMES))
+    prob_frame.insert(0, "UserID", wanted_ids)
+    prob_frame.to_csv(probs_file, index=False)
+
+    print(f"\nWrote {out} ({len(submission):,} rows)")
+    print(f"Wrote {probs_file} (probabilities, for inspection)")
+    if not present.all():
+        print(
+            f"  [warn] {int((~present).sum())} test users have no row before the cutoff; "
+            "they are predicted all-zero"
+        )
+    print("predicted positives per activity:")
+    for i, act in enumerate(ACTIVITY_NAMES):
+        n = int(binary[:, i].sum())
+        print(
+            f"  {act:<20} {n:>5,} ({n / len(binary) * 100:5.1f}%)  "
+            f"theta {thresholds[i]:.3f}"
+        )
+
+    print("\nFormat check against the official test list:", flush=True)
+    subprocess.run(
+        [sys.executable, "scripts/evaluate.py", "--pred", str(out), "--input", test_input],
+        check=False,
+    )
+    return 0
+
+
+def preflight_largest_anchor(
+    model: GitHubHeteroHGT, anchors: list[Anchor], device: str
+) -> None:
+    """One forward+backward on the largest graph before committing to hours of training.
+
+    The graphs grow monotonically with history, so a run that cannot fit the last
+    anchor will die at epoch 1 rather than at epoch 309 -- but only if it is
+    checked first.  On this corpus the largest anchor needs ~66 GiB
+    (25.6 GiB per million nodes, measured), so a co-tenant process on the GPU is
+    the difference between a two-hour run and an immediate OOM.
+    """
+    if not anchors:
+        return
+    biggest = max(anchors, key=lambda a: a.graph_megabytes)
+    print(
+        f"  preflight: largest anchor {biggest.cutoff.date()} "
+        f"({biggest.graph_megabytes:.0f} MB graph, {biggest.n_rows:,} rows)"
+    )
+    model = model.to(device)
+    model.train()
+    model.zero_grad(set_to_none=True)
+    graph = biggest.graph.to(device)
+    mask = torch.from_numpy(biggest.mask).to(device=device, dtype=torch.bool)
+    try:
+        logits = model(graph)[mask]
+        target = torch.from_numpy(biggest.labels[biggest.mask]).float().to(device)
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, target)
+        loss.backward()
+    except torch.OutOfMemoryError as exc:
+        raise SystemExit(
+            "preflight OOM on the largest training anchor.\n"
+            "Measured cost on this corpus: ~25.6 GiB of VRAM per million graph "
+            f"nodes; this anchor has {sum(graph[nt].num_nodes for nt in graph.node_types):,} nodes.\n"
+            "Free the GPU (another process is holding VRAM), or lower the anchor "
+            "range (--anchor-end / --anchor-stride-final)."
+        ) from exc
+    finally:
+        model.zero_grad(set_to_none=True)
+        del graph
+        if device.startswith("cuda"):
+            torch.cuda.empty_cache()
+    if device.startswith("cuda"):
+        peak = torch.cuda.max_memory_allocated() / 2**30
+        free, total = torch.cuda.mem_get_info()
+        print(
+            f"  preflight: OK, peak {peak:.1f} GiB of {total / 2**30:.1f} GiB "
+            f"({free / 2**30:.1f} GiB free afterwards)"
+        )
+        torch.cuda.reset_peak_memory_stats()
+
+
+def run_final(args: argparse.Namespace) -> int:
+    """The submission run: no held-out week, thresholds fitted on train rows."""
+    observed_mode = resolve_anchor_observed(args)
+    test_cutoff = parse_cutoff_arg(args.test_cutoff)
+    days = args.days
+    last_anchor = (
+        parse_cutoff_arg(args.anchor_end)
+        if args.anchor_end
+        else cast(
+            pd.Timestamp,
+            cast(pd.Timestamp, test_cutoff - pd.Timedelta(days=days)).normalize(),
+        )
+    )
+
+    if args.anchors == "auto":
+        cutoffs = final_anchor_cutoffs(
+            start=parse_cutoff_arg(args.anchor_start),
+            dense_end=parse_cutoff_arg(args.anchor_dense_end),
+            end=last_anchor,
+            stride=args.anchor_stride_final,
+        )
+    else:
+        cutoffs = anchor_cutoffs(
+            args.anchors,
+            start=parse_cutoff_arg(args.anchor_start),
+            end=last_anchor,
+            stride=args.anchor_stride,
+        )
+
+    # The guard now protects the graded week itself: no label may be read at or
+    # after the test cutoff, and every anchor's 7-day label window ends before it.
+    for cutoff in cutoffs:
+        assert_before_test_week(
+            cutoff,
+            days=days,
+            context=f"train anchor {cutoff.date()}",
+            ceiling=test_cutoff,
+        )
+
+    print("=" * 78)
+    print(f"HGT FINAL run (no validation) | test cutoff {test_cutoff}")
+    print("=" * 78)
+
+    print("\nLoading tables from", args.db)
+    tables = load_tables(args.db)
+
+    if args.predict_only:
+        return _run_predict_only(args, tables, test_cutoff)
+
+    print(f"  anchors ({len(cutoffs)}):", ", ".join(str(c.date()) for c in cutoffs))
+    print(f"  anchor observability: {observed_mode}")
+    day_flags = load_day_flags()
+    positives = (
+        anchor_positives(tables, cutoffs, days) if observed_mode == "hybrid" else None
+    )
+    if day_flags is None and observed_mode in {"hybrid", "label", "strict"}:
+        print("  [warn] no raw_data/coverage_activity.csv; trusting every label cell")
+    verdicts = observed_activities(
+        cutoffs,
+        day_flags,
+        days=days,
+        mode=observed_mode,
+        positives=positives,
+    )
+
+    train_anchors: list[Anchor] = []
+    skipped: list[str] = []
+    for cutoff in cutoffs:
+        flags = verdicts.loc[cutoff].to_numpy(dtype=bool)
+        if int(flags.sum()) < args.anchor_min_observed:
+            skipped.append(f"{cutoff.date()} (only {int(flags.sum())}/6 activities usable)")
+            continue
+        dataset = load_dataset(
+            tables, cutoff, days, f"train {cutoff.date()}", observed_activity=flags
+        )
+        train_anchors.append(dataset.to_anchor())
+    if args.max_anchors and len(train_anchors) > args.max_anchors:
+        train_anchors = train_anchors[-args.max_anchors :]
+    if skipped:
+        print("\n  [skip] anchors the observability rule cannot support:")
+        for line in skipped:
+            print("    -", line)
+    if not train_anchors:
+        raise SystemExit("no usable training anchors; lower --anchor-min-observed")
+
+    train_rows = sum(anchor.n_rows for anchor in train_anchors)
+    train_positives = np.sum([anchor.positives for anchor in train_anchors], axis=0)
+    train_observed = np.sum(
+        [anchor.observed[anchor.mask].sum(axis=0) for anchor in train_anchors], axis=0
+    )
+
+    print("\nAnchors:")
+    for anchor in train_anchors:
+        share = anchor.n_observed / max(anchor.n_rows * len(ACTIVITY_NAMES), 1)
+        dropped = [
+            act
+            for act, flag in zip(
+                ACTIVITY_NAMES,
+                np.asarray(anchor.observed[anchor.mask].any(axis=0)).reshape(-1).tolist(),
+                strict=True,
+            )
+            if not flag
+        ]
+        print(
+            f"  {anchor.cutoff.date()}  rows {anchor.n_rows:>6,}  "
+            f"observed {anchor.n_observed:>7,} ({share * 100:5.1f}%)  "
+            f"graph {anchor.graph_megabytes:6.1f} MB"
+            + (f"  dropped: {', '.join(dropped)}" if dropped else "")
+        )
+    total_mb = sum(anchor.graph_megabytes for anchor in train_anchors)
+    print(f"  total labelled rows {train_rows:,} across {len(train_anchors)} anchors")
+    print(f"  resident graph memory: {total_mb / 1024:.2f} GB (all anchors kept on CPU)")
+
+    pos_weights = resolve_pos_weights(
+        args.pos_weights,
+        np.asarray(train_positives),
+        int(train_rows),
+        observed_counts=np.asarray(train_observed),
+    )
+    print(f"  pos_weight mode: {args.pos_weights}")
+    print(
+        "  pos_weight:",
+        {act: round(w, 2) for act, w in zip(ACTIVITY_NAMES, pos_weights, strict=True)},
+    )
+    print(
+        "  train base rates:",
+        {
+            act: f"{p / max(n, 1) * 100:.1f}%"
+            for act, p, n in zip(
+                ACTIVITY_NAMES, train_positives, train_observed, strict=True
+            )
+        },
+    )
+
+    checkpoint = args.checkpoint or f"checkpoints/hgt_final_{last_anchor.date()}.pt"
+
+    calibration_anchors = train_anchors
+    if args.threshold_lookback_days > 0:
+        floor = cast(
+            pd.Timestamp,
+            train_anchors[-1].cutoff - pd.Timedelta(days=args.threshold_lookback_days),
+        )
+        calibration_anchors = [a for a in train_anchors if a.cutoff >= floor]
+        if not calibration_anchors:
+            calibration_anchors = train_anchors[-1:]
+        print(
+            f"\n  threshold calibration window: {floor.date()} .. "
+            f"{train_anchors[-1].cutoff.date()} "
+            f"({len(calibration_anchors)} anchors: "
+            f"{', '.join(str(a.cutoff.date()) for a in calibration_anchors)})"
+        )
+
+    if args.dry_run:
+        print(f"\n--dry-run: {len(train_anchors)} anchors built, not training.")
+        print(f"  checkpoint would go to {checkpoint}")
+        return 0
+
+    if args.wandb_mode == "online" and not (
+        os.environ.get("WANDB_API_KEY") or (Path.home() / ".netrc").exists()
+    ):
+        print("\n  [warn] no WANDB_API_KEY and no ~/.netrc: wandb will fail to authenticate")
+        print("         export WANDB_API_KEY=... or use --wandb-mode offline")
+
+    in_dims = {node_type: int(graph_shape) for node_type, graph_shape in {
+        node_type: train_anchors[-1].graph[node_type].x.shape[1]
+        for node_type in train_anchors[-1].graph.node_types
+    }.items()}
+    print("\nNode feature dims:", in_dims)
+
+    model = GitHubHeteroHGT(
+        metadata=train_anchors[-1].graph.metadata(),
+        in_dims=in_dims,
+        hidden_dim=args.hidden_dim,
+        latent_dim=args.latent_dim,
+        head_hidden_dim=args.head_hidden_dim,
+        num_classes=len(ACTIVITY_NAMES),
+        num_heads=args.num_heads,
+        dropout=args.dropout,
+        num_gnn_layers=args.num_gnn_layers,
+    )
+    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+    preflight_largest_anchor(model, train_anchors, args.device)
+
+    run_name = args.run_name or f"hgt-final-{last_anchor.date()}-s{args.seed}"
+    started = time.time()
+    try:
+        model, thresholds, fit_metrics = train_model_final(
+            model=model,
+            train_anchors=train_anchors,
+            pos_weights=pos_weights,
+            epochs=args.epochs,
+            lr=args.lr,
+            lr_schedule=args.lr_schedule,
+            lr_t0=args.lr_t0,
+            lr_t_mult=args.lr_t_mult,
+            weight_decay=args.weight_decay,
+            grad_clip=args.grad_clip,
+            project_name=args.project,
+            run_name=run_name,
+            device=args.device,
+            wandb_mode=args.wandb_mode,
+            save_model_path=checkpoint,
+            checkpoint_every=args.checkpoint_every,
+            shuffle_anchors=not args.no_anchor_shuffle,
+            anchor_seed=args.seed,
+            threshold_anchors=calibration_anchors,
+            extra_config={
+                "mode": "final",
+                "train_cutoffs": [str(a.cutoff.date()) for a in train_anchors],
+                "test_cutoff": str(test_cutoff),
+                "label_window_days": args.days,
+                "anchor_observed_mode": observed_mode,
+                "n_train_rows": int(train_rows),
+                "n_observed_cells": int(sum(a.n_observed for a in train_anchors)),
+                "train_positives": [int(p) for p in train_positives],
+                "train_observed_cells": [int(n) for n in train_observed],
+                "hidden_dim": args.hidden_dim,
+                "latent_dim": args.latent_dim,
+                "head_hidden_dim": args.head_hidden_dim,
+                "num_heads": args.num_heads,
+                "num_gnn_layers": args.num_gnn_layers,
+                "dropout": args.dropout,
+                "seed": args.seed,
+                "git_revision": git_revision(),
+            },
+        )
+    except KeyboardInterrupt:
+        print("\nInterrupted by user.")
+        try:
+            import wandb
+
+            wandb.finish(exit_code=130)
+        except Exception as exc:  # noqa: BLE001 - shutdown must never mask the interrupt
+            print(f"  [warn] wandb shutdown failed: {exc}")
+        return 130
+
+    print(f"\nTraining finished in {(time.time() - started) / 60:.1f} min")
+    print("Thresholds fitted on the training anchors (no validation week exists):")
+    fit_f1 = cast(dict[str, float], fit_metrics.get("f1", {}))
+    for act in ACTIVITY_NAMES:
+        print(
+            f"  {act:<20} theta {thresholds[ACTIVITY_NAMES.index(act)]:.3f}  "
+            f"F1(fit) {fit_f1.get(act, float('nan')) * 100:5.2f}%"
+        )
+
+    print(f"\nBuilding the test-week graph at {test_cutoff} ...")
+    graph, users = build_inference_graph(tables, test_cutoff)
+    result = predict_test_week(
+        model=model,
+        graph=graph,
+        users=users,
+        thresholds=thresholds,
+        test_input=args.test_input,
+        out_path=args.submission_out,
+        probs_path=str(
+            Path("splits") / f"test_probs_{test_cutoff.strftime('%Y-%m-%d-%H%M')}.csv"
+        ),
+        device=args.device,
+    )
+    print("\n" + "=" * 78)
+    print(f"Submission written to {args.submission_out}")
+    print("=" * 78)
+    return result
+
+
+def _run_predict_only(
+    args: argparse.Namespace, tables: dict[str, pd.DataFrame], test_cutoff: pd.Timestamp
+) -> int:
+    """Rebuild the test graph and re-predict from a finished checkpoint.
+
+    This exists because the feature window is a moving target: the corpus ends
+    2026-11-21 06:00 UTC while the graded week starts 2026-11-21 16:00 UTC. If
+    more hours are downloaded and preprocessed, the predictions can be refreshed
+    in minutes without retraining.
+    """
+    checkpoint = Path(args.checkpoint or "checkpoints/hgt_final_2026-11-14.pt")
+    if not checkpoint.exists():
+        raise SystemExit(f"--predict-only needs a checkpoint, {checkpoint} does not exist")
+
+    print(f"\nLoading checkpoint {checkpoint} ...")
+    blob = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    config = blob.get("config", {}) or {}
+    thresholds = np.asarray(blob.get("thresholds", []), dtype=np.float64).reshape(-1)
+    if thresholds.size != len(ACTIVITY_NAMES) or not np.all(np.isfinite(thresholds)):
+        raise SystemExit(
+            f"{checkpoint} does not carry usable thresholds ({thresholds}); "
+            "retrain (a checkpoint written mid-run has NaN thresholds)"
+        )
+
+    print(f"Building the test-week graph at {test_cutoff} ...")
+    graph, users = build_inference_graph(tables, test_cutoff)
+    in_dims = {node_type: int(graph[node_type].x.shape[1]) for node_type in graph.node_types}
+    model = GitHubHeteroHGT(
+        metadata=graph.metadata(),
+        in_dims=in_dims,
+        hidden_dim=int(config.get("hidden_dim", args.hidden_dim)),
+        latent_dim=int(config.get("latent_dim", args.latent_dim)),
+        head_hidden_dim=int(config.get("head_hidden_dim", args.head_hidden_dim)),
+        num_classes=len(ACTIVITY_NAMES),
+        num_heads=int(config.get("num_heads", args.num_heads)),
+        dropout=float(config.get("dropout", args.dropout)),
+        num_gnn_layers=int(config.get("num_gnn_layers", args.num_gnn_layers)),
+    )
+    model.load_state_dict(blob["state_dict"])
+    model.to(args.device).eval()
+
+    return predict_test_week(
+        model=model,
+        graph=graph,
+        users=users,
+        thresholds=thresholds,
+        test_input=args.test_input,
+        out_path=args.submission_out,
+        probs_path=str(
+            Path("splits") / f"test_probs_{test_cutoff.strftime('%Y-%m-%d-%H%M')}.csv"
+        ),
+        device=args.device,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if resolve_mode(args) == "final":
+        set_seed(args.seed)
+        return run_final(args)
+    return run_validation(args)
+
+
+def run_validation(argv_or_args: argparse.Namespace | list[str] | None = None) -> int:
+    args = (
+        argv_or_args
+        if isinstance(argv_or_args, argparse.Namespace)
+        else parse_args(argv_or_args)
+    )
     set_seed(args.seed)
 
     val_cutoff = parse_cutoff_arg(args.val_cutoff)
@@ -593,7 +1255,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         verdicts = observed_activities(
-            cutoffs, day_flags, days=args.days, mode=args.anchor_observed
+            cutoffs, day_flags, days=args.days, mode=resolve_anchor_observed(args)
         )
 
     val_ds = load_dataset(tables, val_cutoff, args.days, "val")
@@ -757,7 +1419,7 @@ def main(argv: list[str] | None = None) -> int:
                 "train_cutoffs": [str(a.cutoff.date()) for a in train_anchors],
                 "val_cutoff": str(val_cutoff.date()),
                 "label_window_days": args.days,
-                "anchor_observed_mode": args.anchor_observed,
+                "anchor_observed_mode": resolve_anchor_observed(args),
                 "n_train_rows": int(train_rows),
                 "n_val_rows": int(val_mask.sum()),
                 "n_observed_cells": int(sum(a.n_observed for a in train_anchors)),
