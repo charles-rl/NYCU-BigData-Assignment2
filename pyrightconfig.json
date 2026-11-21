@@ -1,6 +1,6 @@
 {
-  "//": "MACHINE-LOCAL (docs/ENVIRONMENT.md section 7): venvPath must name this box's conda root. It currently points at the 1x-RTX-PRO-6000 box; on the 4x3090 box set it to /train-data-5-hdd/charles/miniconda3/envs. Everything else here is machine-agnostic.",
-  "venvPath": "/train-data-5-hdd/charles/miniconda3/envs",
+  "//": "MACHINE-LOCAL (docs/ENVIRONMENT.md section 7): venvPath must name this box's conda root. It currently points at the 1x-RTX-PRO-6000 box (the one that runs the final training); on the 4x3090 box set it to /train-data-5-hdd/charles/miniconda3/envs. Everything else here is machine-agnostic.",
+  "venvPath": "/home/mses101137/miniconda3/envs",
   "venv": "bda_asg2",
   "pythonVersion": "3.11",
   "include": ["src", "scripts", "tests", "experiments"],

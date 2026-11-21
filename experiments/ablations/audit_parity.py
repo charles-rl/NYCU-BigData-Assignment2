@@ -87,7 +87,6 @@ PARITY_ARGS = [
     "cma_maxfevals",
     "cma_popsize",
     "cma_sigma0",
-    "pos_weights",
     "seed",
     "project",
 ]
@@ -117,6 +116,13 @@ LIGHTGBM_SHARED_ARGS = [
 ]
 
 SUITE_EPOCHS = 310
+# The base driver ships the ablation-validated calibration mode as its default
+# (``auto``: +4.26 score @0.5 on 3/3 seeds). The copied ablation driver stays on
+# ``doc`` because that is the setting its 21 original cells were measured with;
+# the arms that study calibration pin ``pos_weights`` in ``VariantSpec`` instead
+# of relying on a default. So this is a deliberate divergence, not drift.
+BASE_POS_WEIGHTS_MODE = "auto"
+ABLATION_POS_WEIGHTS_MODE = "doc"
 
 
 def _fmt(value: Any) -> str:
@@ -175,6 +181,16 @@ def main() -> int:
         f"-> {'SUITE OVERRIDE (intentional)' if epochs_ok else 'MISMATCH'}"
     )
     all_ok &= epochs_ok
+
+    pos_mode_ok = bool(
+        base.pos_weights == BASE_POS_WEIGHTS_MODE
+        and ablation.pos_weights == ABLATION_POS_WEIGHTS_MODE
+    )
+    print(
+        f"  pos_weights: base={base.pos_weights!r} ablation={ablation.pos_weights!r} "
+        f"-> {'INTENTIONAL DIVERGENCE (base ships the validated auto mode)' if pos_mode_ok else 'MISMATCH'}"
+    )
+    all_ok &= pos_mode_ok
     print(
         "  device / wandb_mode: dynamic in the ablation copy "
         "(dry-run -> cpu/offline); excluded from the parity table by design"

@@ -137,7 +137,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="temporal: separate earlier train week. cohort: random 80/20 on one week",
     )
     ap.add_argument("--val-fraction", type=float, default=0.2, help="cohort mode holdout")
-    ap.add_argument("--epochs", type=int, default=150)
+    ap.add_argument(
+        "--epochs",
+        type=int,
+        default=310,
+        help=(
+            "training epochs (default 310: every ablation cell and all 60 clean "
+            "HPO trials ran 310; 150 was never measured against the grid)"
+        ),
+    )
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument(
         "--lr-schedule",
@@ -170,7 +178,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--latent-dim", type=int, default=128)
     ap.add_argument("--head-hidden-dim", type=int, default=128)
     ap.add_argument("--num-heads", type=int, default=4)
-    ap.add_argument("--num-gnn-layers", type=int, default=1)
+    ap.add_argument(
+        "--num-gnn-layers",
+        type=int,
+        default=1,
+        help=(
+            "HGT layers (default 1). A second layer measured +0.11 @CMA-ES on "
+            "2/3 seeds and -0.32 @0.5, i.e. noise, for +32%% parameters and "
+            "+65%% wall time; HPO's top 10/10 trials also used 1 layer. 2 layers "
+            "additionally needs activation checkpointing to fit a 24 GiB card, "
+            "which this model does not implement."
+        ),
+    )
     ap.add_argument("--dropout", type=float, default=0.4)
     ap.add_argument("--val-interval", type=int, default=5)
     ap.add_argument("--grad-clip", type=float, default=1.0, help="max grad norm")
@@ -184,7 +203,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument(
         "--pos-weights",
-        default="doc",
+        default="auto",
         help="'doc' (measured constants), 'auto' (from train prevalence), or 6 comma floats",
     )
     ap.add_argument("--checkpoint", default=None, help="path for the best model state")
@@ -426,16 +445,69 @@ def anchor_cutoffs(
     return cutoffs
 
 
-def resolve_pos_weights(spec: str, train_positives: np.ndarray, n_rows: int) -> list[float]:
+def resolve_pos_weights(
+    spec: str,
+    train_positives: np.ndarray,
+    n_rows: int,
+    observed_counts: np.ndarray | None = None,
+) -> list[float]:
+    """Turn a ``--pos-weights`` mode into the six BCE positive-class weights.
+
+    ``doc``
+        The static 252-clean-anchor constants from
+        ``docs/VALIDATION_DATA.md`` section 5 (``DOC_POS_WEIGHTS``).  They were
+        fitted on a different, wider panel than any single run trains on, and
+        the ablation grid measured them as 2.0-2.6x the prevalence ratio of the
+        anchors a run actually sees: keeping them costs 4.26 points at a fixed
+        0.5 threshold (``experiments/ablations/RESULTS.md``, Experiment C).
+    ``auto`` (default)
+        ``(N_observed - N_pos) / N_pos`` per activity, computed from the
+        training anchors of *this* run.  The denominator is the number of
+        **observed** cells for that activity, not the row count: a cell the
+        coverage audit marked unobserved never enters the loss, so counting it
+        as a negative would deflate the weight for exactly the activities that
+        lost days.  Mathematically identical to ``(1 - p) / p`` with
+        ``p = N_pos / N_observed``, which is the usual BCE ``pos_weight``.
+        Measured: +4.26 score @0.5 (3/3 seeds) and +0.13 @CMA-ES over ``doc``,
+        with the fitted CMA-ES thresholds dropping from 0.76-0.89 to 0.63-0.81
+        because theta no longer has to undo the inflated weights.
+    ``<six comma-separated floats>``
+        Explicit override, e.g. ``--pos-weights 7.3,18,11,12.8,19.3,1.3``.
+
+    ``observed_counts`` is optional so older callers (and tests) that only know
+    the row count keep working; it then falls back to ``n_rows`` per activity,
+    which is what the observed count equals when every label cell is observed.
+    """
     if spec == "doc":
         return list(DOC_POS_WEIGHTS)
     if spec == "auto":
-        prevalence = np.clip(train_positives / max(n_rows, 1), 1e-6, 1 - 1e-6)
-        return [float(w) for w in (1.0 - prevalence) / prevalence]
+        positives = np.asarray(train_positives, dtype=np.float64).reshape(-1)
+        if positives.size != len(ACTIVITY_NAMES):
+            raise SystemExit(
+                f"auto pos-weights needs {len(ACTIVITY_NAMES)} per-activity "
+                f"positive counts, got {positives.size}"
+            )
+        if observed_counts is None:
+            denominator = np.full(len(ACTIVITY_NAMES), float(max(n_rows, 1)))
+        else:
+            denominator = np.asarray(observed_counts, dtype=np.float64).reshape(-1)
+            if denominator.size != len(ACTIVITY_NAMES):
+                raise SystemExit(
+                    f"auto pos-weights needs {len(ACTIVITY_NAMES)} per-activity "
+                    f"observed counts, got {denominator.size}"
+                )
+            denominator = np.maximum(denominator, 1.0)
+        # clip keeps a zero-positive activity finite instead of dividing by zero
+        positives = np.clip(positives, 1.0, None)
+        negatives = np.maximum(denominator - positives, 1.0)
+        return [float(w) for w in negatives / positives]
     parts = [p.strip() for p in spec.split(",") if p.strip()]
     if len(parts) != len(ACTIVITY_NAMES):
         raise SystemExit(f"--pos-weights needs {len(ACTIVITY_NAMES)} comma-separated values")
-    return [float(p) for p in parts]
+    try:
+        return [float(p) for p in parts]
+    except ValueError as exc:
+        raise SystemExit(f"--pos-weights values must be numbers: {exc}") from exc
 
 
 def git_revision() -> str:
@@ -550,6 +622,7 @@ def main(argv: list[str] | None = None) -> int:
         ]
         train_rows = int(tr.sum())
         train_positives = np.asarray(val_ds.labels[tr].sum(axis=0))
+        train_observed = np.asarray(val_ds.observed[tr].sum(axis=0))
         print(
             f"  [cohort] {train_rows:,} train rows / {int(va.sum()):,} val rows "
             "on the same graph (validation shares the week with training)"
@@ -579,6 +652,12 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("no usable training anchors; lower --anchor-min-observed")
         train_rows = sum(a.n_rows for a in train_anchors)
         train_positives = np.sum([a.positives for a in train_anchors], axis=0)
+        # Per-activity denominator for `--pos-weights auto`: how many label cells
+        # the coverage audit says are actually observable, so a masked cell is
+        # not silently counted as a negative.
+        train_observed = np.sum(
+            [a.observed[a.mask].sum(axis=0) for a in train_anchors], axis=0
+        )
 
     print("\nAnchors:")
     for a in train_anchors:
@@ -592,8 +671,20 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  resident graph memory: {total_graph_mb / 1024:.2f} GB (all anchors kept on CPU)")
 
     pos_weights = resolve_pos_weights(
-        args.pos_weights, np.asarray(train_positives), int(train_rows)
+        args.pos_weights,
+        np.asarray(train_positives),
+        int(train_rows),
+        observed_counts=np.asarray(train_observed),
     )
+    print(f"  pos_weight mode: {args.pos_weights}")
+    if args.pos_weights == "auto":
+        print(
+            "  pos_weight denominators (observed cells):",
+            {
+                a: int(n)
+                for a, n in zip(ACTIVITY_NAMES, np.asarray(train_observed), strict=True)
+            },
+        )
     print("  pos_weight:", {a: round(w, 2) for a, w in zip(ACTIVITY_NAMES, pos_weights, strict=True)})
 
     if args.dry_run:

@@ -34,11 +34,16 @@ value is directly comparable to your grading metric.
 > in `hpo/hgt-hpo/trials.csv`, which share one fixed evaluation protocol and
 > were therefore all inflated or not inflated equally. Best clean trial:
 > **65.81%** (trial 41; `python -m scripts.hpo report --top 10` reprints the
-> config). The consensus-of-top-10 defaults it implies are already set as the
-> argparse defaults in `scripts/run_training.py` -- except `--epochs` and
-> `--lr-schedule`, which are still 150 and `warm-restarts`. All 60 trials ran
-> `cosine` at 310, so pass `--lr-schedule cosine --epochs 310` explicitly to
-> reproduce any trial's regime.
+> config). The consensus-of-top-10 defaults it implies are set as the argparse
+> defaults in `scripts/run_training.py`, plus the three settings the ablation grid
+> settled: `--epochs 310` (every one of the 27 ablation cells and all 60 trials
+> ran 310), `--num-gnn-layers 1` (a second layer measured +0.11 @CMA-ES on 2/3
+> seeds and -0.32 @0.5, i.e. noise, for +32% parameters and +65% wall time) and
+> `--pos-weights auto` (the measured `(N_observed - N_pos)/N_pos` weights: +4.26
+> @0.5 on 3/3 seeds over the doc constants). `--lr-schedule` is still
+> `warm-restarts`, which is what the 27-cell grid ran; all 60 HPO trials ran
+> `cosine` at 310 instead, and the two are within 0.1 of each other, so pass
+> `--lr-schedule cosine` only to reproduce a specific trial's regime.
 
 The trainer also re-runs `scripts/evaluate.py` on the final predictions as a
 cross-check; each trial's copy lands in its own
